@@ -19,6 +19,8 @@ Replace this paragraph with your own summary of what your version does.
 
 Explain your design in plain language.
 
+Real-world recommendation systems usually combine many signals, including user behavior (plays, skips, likes, watch time), content attributes (tempo, energy, mood, genre), and continuous feedback loops that re-rank results based on what users actually engage with. They do not just find “similar songs”; they balance relevance, freshness, diversity, and exploration so users keep discovering things they enjoy. My version will prioritize vibe match first, using mood plus key audio features like energy, valence, tempo, and danceability, then apply a simple ranking step to keep recommendations coherent but not repetitive.
+
 Some prompts to answer:
 
 - What features does each `Song` use in your system
@@ -28,6 +30,8 @@ Some prompts to answer:
 - How do you choose which songs to recommend
 
 You can include a simple diagram or bullet list if helpful.
+
+![alt text](image.png)
 
 ---
 
