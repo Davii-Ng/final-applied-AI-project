@@ -10,15 +10,12 @@ It also includes simple fairness improvements so the top results are not dominat
 
 ## How The System Works
 
-Each song has these features:
-- `genre`
-- `mood`
-- `energy`
-- `tempo_bpm`
-- `valence`
-- `danceability`
-- `acousticness`
-- `artist`
+Each song in the CSV catalog has 16 features:
+- `genre`, `mood`, `mood_tag`
+- `energy`, `tempo_bpm`, `valence`, `danceability`, `acousticness`
+- `popularity`, `release_decade`
+- `instrumentalness`, `vocal_presence`, `brightness`
+- `artist`, `title`, `id`
 
 The user profile includes:
 - favorite genre
@@ -26,9 +23,10 @@ The user profile includes:
 - target energy
 - whether the user likes acoustic tracks
 
-The score combines:
-- exact matches for genre and mood
-- Gaussian similarity for numeric features (energy, tempo, valence, danceability, acousticness)
+The scoring system combines 14 weighted factors (~22.2 max points):
+- Exact matches for genre, mood, and mood tags
+- Gaussian similarity for numeric features (energy, tempo, valence, danceability, acousticness, popularity, instrumentalness, vocal presence, brightness)
+- Release decade proximity scoring
 
 The current weight-shift experiment uses:
 - lower genre weight
@@ -37,6 +35,8 @@ The current weight-shift experiment uses:
 After base scoring, a diversity penalty is applied during ranking:
 - repeated artist in current top results: `-2.0`
 - repeated genre in current top results: `-1.0`
+
+The project provides both a functional API (`recommend_songs`) and an OOP interface (`Recommender` class).
 
 ---
 
@@ -65,6 +65,8 @@ source .venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+
+Dependencies: `pandas`, `pytest`, `streamlit`
 
 ### Run the App
 
@@ -101,6 +103,22 @@ Observed behavior:
 - Rankings are very sensitive to energy weighting.
 - Strong single signals can dominate mixed preferences.
 - Diversity penalty helps avoid near-duplicate top results.
+
+---
+
+## Project Structure
+
+```
+src/
+  recommender.py   # Core scoring, ranking, Song/UserProfile classes, Recommender
+  main.py          # CLI runner with formatted ASCII table output
+tests/
+  test_recommender.py  # Unit tests
+data/
+  songs.csv        # 10-song catalog with 16 features
+model_card.md      # Model card with bias and evaluation notes
+reflection.md      # Project reflection
+```
 
 ---
 
