@@ -1,62 +1,31 @@
 # 🎵 Music Recommender Simulation
 
-## Project Summary
+Builds playlist recommendations from a small handcrafted catalog using mood, genre, and audio-style features, then keeps top results diverse with artist/genre penalties.
 
-This project builds a small music recommender from a hand-made song catalog.
-The system scores songs using user preferences and audio-style features, then ranks the best matches.
-It also includes simple fairness improvements so the top results are not dominated by one artist or one genre.
+## At a Glance
 
-Recent updates:
-- Refactored models into `src/models.py` (`Song`, `UserProfile`)
-- Kept scoring and ranking logic in `src/recommender.py`
-- Consolidated duplicate diversity penalty logic into one shared helper
-- Improved CLI output readability with a ranked ASCII table
+| What | Current State |
+|---|---|
+| Core engine | Functional API + OOP class |
+| Data model | Split into `src/models.py` |
+| Ranking logic | `src/recommender.py` |
+| CLI output | Ranked ASCII table |
+| Tests | `pytest` passing |
 
----
+## Recent Improvements
 
-## How The System Works
+- [x] Refactored dataclasses into `src/models.py` (`Song`, `UserProfile`)
+- [x] Kept scoring/ranking logic centralized in `src/recommender.py`
+- [x] Consolidated duplicate diversity penalty logic
+- [x] Improved CLI readability (clear ranked table output)
 
-Each song in the CSV catalog has 16 features:
-- `genre`, `mood`, `mood_tag`
-- `energy`, `tempo_bpm`, `valence`, `danceability`, `acousticness`
-- `popularity`, `release_decade`
-- `instrumentalness`, `vocal_presence`, `brightness`
-- `artist`, `title`, `id`
+## Quick Start
 
-The user profile includes:
-- favorite genre
-- favorite mood
-- target energy
-- whether the user likes acoustic tracks
-
-The scoring system combines 14 weighted factors (~22.2 max points):
-- Exact matches for genre, mood, and mood tags
-- Gaussian similarity for numeric features (energy, tempo, valence, danceability, acousticness, popularity, instrumentalness, vocal presence, brightness)
-- Release decade proximity scoring
-
-The current weight-shift experiment uses:
-- lower genre weight
-- higher energy weight
-
-After base scoring, a diversity penalty is applied during ranking:
-- repeated artist in current top results: `-2.0`
-- repeated genre in current top results: `-1.0`
-
-The project provides both a functional API (`recommend_songs`) and an OOP interface (`Recommender` class).
-
----
-
-## Getting Started
-
-### Setup
-
-1. Create a virtual environment (optional):
+### 1) Install
 
 ```bash
 python -m venv .venv
 ```
-
-2. Activate it:
 
 ```bash
 # Windows
@@ -66,103 +35,105 @@ python -m venv .venv
 source .venv/bin/activate
 ```
 
-3. Install dependencies:
-
 ```bash
 pip install -r requirements.txt
 ```
 
-Dependencies: `pandas`, `pytest`, `streamlit`
-
-### Run the App
-
-From the project root:
+### 2) Run the App
 
 ```bash
 python -m src.main
 ```
 
-Alternative (also supported):
+Alternative:
 
 ```bash
 python src/main.py
 ```
 
-The terminal output is shown as a formatted ASCII table with:
-- rank
-- title
-- artist
-- score
-- reasons for each score
-
-### Run Tests
+### 3) Run Tests
 
 ```bash
 python -m pytest
 ```
 
----
+## How It Scores Songs
 
-## Experiments
+The engine combines exact-match boosts plus similarity-based scoring.
 
-Main experiments completed:
+- Exact boosts: genre, mood, mood tags
+- Gaussian similarity: energy, tempo, valence, danceability, acousticness, popularity, decade, instrumentalness, vocal presence, brightness
+- Diversity guardrails after base ranking:
+  - repeated artist: `-2.0`
+  - repeated genre: `-1.0`
+
+<details>
+<summary><strong>Feature Inputs (click to expand)</strong></summary>
+
+Each song has 16 fields:
+- `genre`, `mood`, `mood_tag`
+- `energy`, `tempo_bpm`, `valence`, `danceability`, `acousticness`
+- `popularity`, `release_decade`
+- `instrumentalness`, `vocal_presence`, `brightness`
+- `artist`, `title`, `id`
+
+User profile includes:
+- favorite genre
+- favorite mood
+- target energy
+- likes acoustic (boolean)
+
+</details>
+
+## Experiments So Far
+
 - Adversarial profile: high energy + sad mood
-- Unknown mood profile: "bittersweet"
-- Out-of-range energy profile
-- Weight shift sensitivity test (energy up, genre down)
-- Diversity penalty test (artist/genre repetition penalties)
+- Unknown mood fallback profile (`bittersweet`)
+- Out-of-range energy behavior
+- Weight shift sensitivity (energy up, genre down)
+- Diversity penalty behavior
 - Mood alias sensitivity check (`upbeat` vs `happy`)
 
-Observed behavior:
-- Rankings are very sensitive to energy weighting.
+Observed:
+- Ranking is sensitive to energy weight.
 - Strong single signals can dominate mixed preferences.
-- Diversity penalty helps avoid near-duplicate top results.
-
----
+- Diversity penalty reduces near-duplicate top picks.
 
 ## Project Structure
 
-```
+```text
 src/
   __init__.py      # Package exports
   models.py        # Song and UserProfile dataclasses
-  recommender.py   # Core scoring and ranking logic, functional API + Recommender class
-  main.py          # CLI runner with ranked ASCII table output
+  recommender.py   # Core scoring and ranking logic
+  main.py          # CLI runner (ranked table output)
 tests/
-  test_recommender.py  # Unit tests
+  test_recommender.py
 data/
-  songs.csv        # 10-song catalog with 16 features
+  songs.csv
 assets/
-  image.png        # Project image asset
-  image-1.png      # Additional project image asset
-model_card.md      # Model card with bias and evaluation notes
-reflection.md      # Project reflection
+  image.png
+  image-1.png
+model_card.md
+reflection.md
+plan.MD
 ```
-
----
 
 ## Assets
 
-Project images are stored in `assets/`:
 - ![Project image](assets/image.png)
 - ![Project image 2](assets/image-1.png)
 
----
+## Limitations
 
-## Limitations and Risks
+- Catalog is small (10 songs)
+- Mood interpretation is still coarse
+- Rule-based diversity is not yet personalized
+- Exact matches can over-weight narrow preferences
 
-- The catalog is very small (10 songs).
-- Mood handling is simple and can miss nuanced moods.
-- Exact match features can overfit narrow preferences.
-- Diversity penalty is rule-based and not personalized.
+## Documentation
 
-See `model_card.md` for a fuller reflection on bias and evaluation.
-
----
-
-## Reflection and Model Card
-
-Project reflection and analysis are documented in:
 - [Model Card](model_card.md)
 - [Reflection Notes](reflection.md)
+- [Project Plan](plan.MD)
 
