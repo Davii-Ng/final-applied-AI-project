@@ -9,43 +9,70 @@ You will implement the functions in recommender.py:
 - recommend_songs
 """
 
+import os
+import sys
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Support running this file directly from the src folder.
+if __package__ in {None, ""}:
+    if PROJECT_ROOT not in sys.path:
+        sys.path.insert(0, PROJECT_ROOT)
+
 from src.recommender import load_songs, recommend_songs
 from textwrap import wrap
 
 
+def _format_prefs(user_prefs: dict) -> str:
+    keys = ["genre", "mood", "energy", "likes_acoustic"]
+    parts = []
+    for key in keys:
+        if key in user_prefs:
+            parts.append(f"{key}={user_prefs[key]}")
+    return " | ".join(parts)
+
+
 def _print_recommendation_table(profile_name: str, user_prefs: dict, recommendations) -> None:
+    rank_width = 4
     title_width = 24
     artist_width = 18
     score_width = 7
-    reasons_width = 64
+    reasons_width = 56
+
+    line = "+" + "-" * (rank_width + 2)
+    line += "+" + "-" * (title_width + 2)
+    line += "+" + "-" * (artist_width + 2)
+    line += "+" + "-" * (score_width + 2)
+    line += "+" + "-" * (reasons_width + 2) + "+"
 
     print(f"=== {profile_name} ===")
-    print(f"prefs: {user_prefs}")
+    print(f"prefs: {_format_prefs(user_prefs)}")
     print()
+    print(line)
     print(
-        f"{'Title':<{title_width}}  {'Artist':<{artist_width}}  {'Score':>{score_width}}  Reasons"
+        f"| {'#':<{rank_width}} | {'Title':<{title_width}} | {'Artist':<{artist_width}} | {'Score':>{score_width}} | {'Reasons':<{reasons_width}} |"
     )
-    print(
-        f"{'-' * title_width}  {'-' * artist_width}  {'-' * score_width}  {'-' * reasons_width}"
-    )
+    print(line)
 
-    for song, score, reasons in recommendations:
+    for index, (song, score, reasons) in enumerate(recommendations, start=1):
         reason_text = "; ".join(reasons) if isinstance(reasons, list) else str(reasons)
         wrapped_reasons = wrap(reason_text, width=reasons_width) or [""]
         first_line = wrapped_reasons[0]
         print(
-            f"{song['title'][:title_width]:<{title_width}}  {song['artist'][:artist_width]:<{artist_width}}  {score:>{score_width}.2f}  {first_line}"
+            f"| {index:<{rank_width}} | {song['title'][:title_width]:<{title_width}} | {song['artist'][:artist_width]:<{artist_width}} | {score:>{score_width}.2f} | {first_line:<{reasons_width}} |"
         )
         for continuation in wrapped_reasons[1:]:
             print(
-                f"{'':<{title_width}}  {'':<{artist_width}}  {'':>{score_width}}  {continuation}"
+                f"| {'':<{rank_width}} | {'':<{title_width}} | {'':<{artist_width}} | {'':>{score_width}} | {continuation:<{reasons_width}} |"
             )
 
+    print(line)
     print()
 
 
 def main() -> None:
-    songs = load_songs("data/songs.csv")
+    songs_csv = os.path.join(PROJECT_ROOT, "data", "songs.csv")
+    songs = load_songs(songs_csv)
     profiles = [
         (
             "Conflict profile: high energy + sad",
