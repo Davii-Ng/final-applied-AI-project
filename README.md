@@ -44,6 +44,8 @@ Fallback behavior:
 
 ## Quick Start
 
+This project is terminal-first. No web UI framework is required.
+
 ### 1) Install
 
 ```bash
@@ -72,6 +74,12 @@ Alternative:
 
 ```bash
 python src/main.py
+```
+
+If installed as a package (for example with `pip install -e .`), you can also run:
+
+```bash
+dj-recommender
 ```
 
 ### 3) Run Tests

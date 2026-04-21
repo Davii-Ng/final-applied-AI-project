@@ -14,3 +14,4 @@ venv/
 # Pytest cache
 .pytest_cache/
 .vscode
+.env
