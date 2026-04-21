@@ -1,4 +1,4 @@
-from src.agent1_mood import ALLOWED_MOODS, MoodAnalyst, analyze_mood
+from src.agents.agent1_mood import ALLOWED_MOODS, MoodAnalyst, analyze_mood
 
 
 def test_analyze_mood_returns_valid_schema_payload():

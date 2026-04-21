@@ -1,6 +1,6 @@
 """Music recommender package."""
 
-from .agent1_mood import MoodAnalyst, analyze_mood
+from .agents.agent1_mood import MoodAnalyst, analyze_mood
 from .models import Song, UserProfile
 from .recommender import Recommender, load_songs, recommend_songs
 

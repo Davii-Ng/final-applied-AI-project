@@ -20,6 +20,7 @@ if __package__ in {None, ""}:
         sys.path.insert(0, PROJECT_ROOT)
 
 from src.recommender import load_songs, recommend_songs
+from src.agents.agent1_mood import analyze_mood
 from textwrap import wrap
 
 
@@ -70,6 +71,21 @@ def _print_recommendation_table(profile_name: str, user_prefs: dict, recommendat
     print()
 
 
+def _prefs_from_agent_message(message: str, default_genre: str = "pop") -> tuple[dict, dict]:
+    payload = analyze_mood(message)
+    mood = payload["detected_mood"]
+    energy = payload["energy_hint"] if payload["energy_hint"] is not None else 0.55
+    likes_acoustic = mood in {"chill", "relaxed", "sad", "focused", "nostalgic", "moody"}
+
+    user_prefs = {
+        "genre": default_genre,
+        "mood": mood,
+        "energy": energy,
+        "likes_acoustic": likes_acoustic,
+    }
+    return user_prefs, payload
+
+
 def main() -> None:
     songs_csv = os.path.join(PROJECT_ROOT, "data", "songs.csv")
     songs = load_songs(songs_csv)
@@ -107,6 +123,18 @@ def main() -> None:
     for profile_name, user_prefs in profiles:
         recommendations = recommend_songs(user_prefs, songs, k=3)
         _print_recommendation_table(profile_name, user_prefs, recommendations)
+
+    print("Agent 1 to recommender demo:\n")
+    agent_messages = [
+        "Need hype songs for a workout run tonight",
+        "Give me calm lofi study music",
+    ]
+    for message in agent_messages:
+        user_prefs, mood_payload = _prefs_from_agent_message(message)
+        recommendations = recommend_songs(user_prefs, songs, k=3)
+        print(f"message: {message}")
+        print(f"agent payload: {mood_payload}")
+        _print_recommendation_table("Agent-derived profile", user_prefs, recommendations)
 
 
 if __name__ == "__main__":
