@@ -1,52 +1,20 @@
-# 🎵 Music Recommender Simulation
+# Music Recommender Simulation
 
-Builds playlist recommendations from a small handcrafted catalog using mood, genre, and audio-style features, then keeps top results diverse with artist/genre penalties.
+Terminal-first music recommender with two cooperating layers:
+- Deterministic ranking in src/recommender.py
+- Agent-style mood parsing in src/agents/agent1_mood.py
 
-## At a Glance
+## What this project does
 
-| What | Current State |
-|---|---|
-| Core engine | Functional API + OOP class |
-| Data model | Split into `src/models.py` |
-| Ranking logic | `src/recommender.py` |
-| CLI output | Ranked ASCII table |
-| Tests | `pytest` passing |
-
-## Recent Improvements
-
-- [x] Refactored dataclasses into `src/models.py` (`Song`, `UserProfile`)
-- [x] Kept scoring/ranking logic centralized in `src/recommender.py`
-- [x] Consolidated duplicate diversity penalty logic
-- [x] Improved CLI readability (clear ranked table output)
-- [x] Added Agent 1 Mood Analyst (`src/agents/agent1_mood.py`) with fallback-safe JSON payload
-
-## Agent 1: Mood Analyst
-
-`analyze_mood` converts free text into a normalized payload for downstream agents.
-
-```python
-from src.agents.agent1_mood import analyze_mood
-
-payload = analyze_mood("Need upbeat songs for a workout session")
-print(payload)
-```
-
-Returned fields:
-- `schema_version`
-- `trace_id`
-- `detected_mood`
-- `confidence` (0.0 to 1.0)
-- `energy_hint` (0.0 to 1.0 or `None`)
-- `mood_candidates` (top ranked labels)
-
-Fallback behavior:
-- If confidence is below `0.55`, `detected_mood` is set to `balanced`.
+- Loads songs from data/songs.csv
+- Scores songs against user preferences with weighted signals
+- Applies diversity penalties to reduce repeated artist/genre picks
+- Produces ranked output in a CLI table
+- Demonstrates an Agent 1 mood-to-profile bridge in src/main.py
 
 ## Quick Start
 
-This project is terminal-first. No web UI framework is required.
-
-### 1) Install
+1. Create and activate a virtual environment.
 
 ```bash
 python -m venv .venv
@@ -56,15 +24,17 @@ python -m venv .venv
 # Windows
 .venv\Scripts\activate
 
-# Mac/Linux
+# macOS/Linux
 source .venv/bin/activate
 ```
+
+2. Install dependencies.
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2) Run the App
+3. Run the CLI.
 
 ```bash
 python -m src.main
@@ -76,95 +46,102 @@ Alternative:
 python src/main.py
 ```
 
-If installed as a package (for example with `pip install -e .`), you can also run:
+Optional editable install and script entrypoint:
 
 ```bash
+pip install -e .
 dj-recommender
 ```
 
-### 3) Run Tests
+4. Run tests.
 
 ```bash
-python -m pytest
+python -m pytest -q .
 ```
 
-## How It Scores Songs
+## Core Modules
 
-The engine combines exact-match boosts plus similarity-based scoring.
+- src/models.py
+  - Song dataclass with audio and metadata fields
+  - UserProfile dataclass for structured taste inputs
+- src/recommender.py
+  - Functional scoring and ranking pipeline
+  - OOP Recommender class used by tests
+- src/agents/agent1_mood.py
+  - Converts raw user message into normalized mood payload
+  - Enforces confidence-based fallback to balanced
+- src/agents/connectivity_check.py
+  - Minimal LangChain + Gemini ping helper
+  - Returns structured status payload, never raises by default
+- src/main.py
+  - Runs adversarial profiles and agent-derived profile demos
 
-- Exact boosts: genre, mood, mood tags
-- Gaussian similarity: energy, tempo, valence, danceability, acousticness, popularity, decade, instrumentalness, vocal presence, brightness
-- Diversity guardrails after base ranking:
-  - repeated artist: `-2.0`
-  - repeated genre: `-1.0`
+## Agent 1 Contract
 
-<details>
-<summary><strong>Feature Inputs (click to expand)</strong></summary>
+Input:
+- user_message: str
+- optional_context: dict or None
+- trace_id: str or None
 
-Each song has 16 fields:
-- `genre`, `mood`, `mood_tag`
-- `energy`, `tempo_bpm`, `valence`, `danceability`, `acousticness`
-- `popularity`, `release_decade`
-- `instrumentalness`, `vocal_presence`, `brightness`
-- `artist`, `title`, `id`
+Output JSON fields:
+- schema_version: str
+- trace_id: str
+- detected_mood: str
+- confidence: float in [0.0, 1.0]
+- energy_hint: float in [0.0, 1.0] or None
+- mood_candidates: list[str]
 
-User profile includes:
-- favorite genre
-- favorite mood
-- target energy
-- likes acoustic (boolean)
+Fallback rule:
+- If confidence is below 0.55, detected_mood is set to balanced.
 
-</details>
+Example:
 
-## Experiments So Far
+```python
+from src.agents.agent1_mood import analyze_mood
 
-- Adversarial profile: high energy + sad mood
-- Unknown mood fallback profile (`bittersweet`)
-- Out-of-range energy behavior
-- Weight shift sensitivity (energy up, genre down)
-- Diversity penalty behavior
-- Mood alias sensitivity check (`upbeat` vs `happy`)
+payload = analyze_mood("Need upbeat songs for a workout session")
+print(payload)
+```
 
-Observed:
-- Ranking is sensitive to energy weight.
-- Strong single signals can dominate mixed preferences.
-- Diversity penalty reduces near-duplicate top picks.
+## Recommender Behavior Summary
+
+- Strong boosts for exact mood and genre matches
+- Gaussian similarity for energy, tempo, valence, danceability, acousticness, popularity, decade, instrumentalness, vocal presence, and brightness
+- Diversity penalties applied after initial ranking:
+  - repeated artist: -2.0
+  - repeated genre: -1.0
 
 ## Project Structure
 
 ```text
 src/
-  __init__.py      # Package exports
-  models.py        # Song and UserProfile dataclasses
-  recommender.py   # Core scoring and ranking logic
-  main.py          # CLI runner (ranked table output)
+  __init__.py
+  main.py
+  models.py
+  recommender.py
+  agents/
+    __init__.py
+    agent1_mood.py
+    connectivity_check.py
 tests/
   test_recommender.py
+  test_agent1_mood.py
 data/
   songs.csv
 assets/
   image.png
   image-1.png
+pyproject.toml
+requirements.txt
 model_card.md
 reflection.md
 plan.MD
 ```
 
-## Assets
-
-- ![Project image](assets/image.png)
-- ![Project image 2](assets/image-1.png)
-
-## Limitations
-
-- Catalog is small (10 songs)
-- Mood interpretation is still coarse
-- Rule-based diversity is not yet personalized
-- Exact matches can over-weight narrow preferences
-
 ## Documentation
 
-- [Model Card](model_card.md)
-- [Reflection Notes](reflection.md)
-- [Project Plan](plan.MD)
+- model_card.md
+- reflection.md
+- plan.MD
+- docs/implementation_guide.md
 
