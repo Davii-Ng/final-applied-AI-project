@@ -31,3 +31,35 @@ def test_analyze_mood_honors_trace_id_and_agent_wrapper():
     assert payload["trace_id"] == "trace-123"
     assert payload["detected_mood"] in {"intense", "balanced"}
     assert payload["energy_hint"] is None or 0.0 <= payload["energy_hint"] <= 1.0
+
+
+def test_analyze_mood_handles_empty_or_none_message():
+    payload = analyze_mood(None)  # type: ignore[arg-type]
+
+    assert payload["detected_mood"] == "balanced"
+    assert payload["confidence"] == 0.0
+    assert payload["energy_hint"] is None
+    assert payload["mood_candidates"] == ["balanced"]
+
+
+def test_analyze_mood_high_energy_hint_wins_when_both_hint_types_present():
+    payload = analyze_mood("happy workout calm chill")
+
+    assert payload["energy_hint"] == 0.85
+
+
+def test_analyze_mood_context_prior_mood_surfaces_in_candidates():
+    payload = analyze_mood(
+        user_message="upbeat happy",
+        optional_context={"prior_mood": "nostalgic"},
+    )
+
+    assert payload["detected_mood"] == "happy"
+    assert "nostalgic" in payload["mood_candidates"]
+
+
+def test_analyze_mood_low_energy_keywords_force_low_energy_hint():
+    payload = analyze_mood("I want a mellow relaxed lofi study session")
+
+    assert payload["detected_mood"] in {"relaxed", "chill"}
+    assert payload["energy_hint"] == 0.30
