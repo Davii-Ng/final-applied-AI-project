@@ -18,6 +18,29 @@ Builds playlist recommendations from a small handcrafted catalog using mood, gen
 - [x] Kept scoring/ranking logic centralized in `src/recommender.py`
 - [x] Consolidated duplicate diversity penalty logic
 - [x] Improved CLI readability (clear ranked table output)
+- [x] Added Agent 1 Mood Analyst (`src/agent1_mood.py`) with fallback-safe JSON payload
+
+## Agent 1: Mood Analyst
+
+`analyze_mood` converts free text into a normalized payload for downstream agents.
+
+```python
+from src.agent1_mood import analyze_mood
+
+payload = analyze_mood("Need upbeat songs for a workout session")
+print(payload)
+```
+
+Returned fields:
+- `schema_version`
+- `trace_id`
+- `detected_mood`
+- `confidence` (0.0 to 1.0)
+- `energy_hint` (0.0 to 1.0 or `None`)
+- `mood_candidates` (top ranked labels)
+
+Fallback behavior:
+- If confidence is below `0.55`, `detected_mood` is set to `balanced`.
 
 ## Quick Start
 
