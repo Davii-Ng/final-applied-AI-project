@@ -2,13 +2,19 @@ import os
 import time
 from typing import Any, Dict, Optional
 
+import pytest
+from dotenv import load_dotenv
+
 
 PING_PROMPT = "Reply with exactly: pong"
 
 
+pytestmark = pytest.mark.smoke
+
+
 def check_gemini_connectivity(
     api_key: Optional[str] = None,
-    model: str = "gemini-1.5-flash",
+    model: str = "gemini-3-flash-preview",
     llm_class: Any = None,
     message_class: Any = None,
 ) -> Dict[str, Any]:
@@ -49,3 +55,18 @@ def check_gemini_connectivity(
             "model": model,
             "error": str(exc),
         }
+
+
+def test_gemini_connectivity_smoke() -> None:
+    load_dotenv()
+    key = os.getenv("GOOGLE_API_KEY")
+    if not key:
+        pytest.skip("GOOGLE_API_KEY is not set")
+
+    pytest.importorskip("langchain_google_genai")
+    pytest.importorskip("langchain_core.messages")
+
+    status = check_gemini_connectivity(api_key=key)
+
+    assert status["provider"] == "gemini"
+    assert status["ok"], f"Gemini connectivity smoke test failed: {status}"

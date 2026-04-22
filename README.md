@@ -59,6 +59,12 @@ dj-recommender
 python -m pytest -q .
 ```
 
+Run only smoke tests (real external connectivity):
+
+```bash
+python -m pytest -q -m smoke
+```
+
 ## Core Modules
 
 - src/models.py
@@ -70,9 +76,6 @@ python -m pytest -q .
 - src/agents/agent1_mood.py
   - Converts raw user message into normalized mood payload
   - Enforces confidence-based fallback to balanced
-- src/agents/connectivity_check.py
-  - Minimal LangChain + Gemini ping helper
-  - Returns structured status payload, never raises by default
 - src/main.py
   - Runs adversarial profiles and agent-derived profile demos
 
@@ -122,10 +125,10 @@ src/
   agents/
     __init__.py
     agent1_mood.py
-    connectivity_check.py
 tests/
   test_recommender.py
   test_agent1_mood.py
+  test_connectivity_smoke.py
 data/
   songs.csv
 assets/

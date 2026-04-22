@@ -40,7 +40,7 @@ flowchart LR
 ```
 
 Secondary utility path:
-- src/agents/connectivity_check.py performs optional Gemini connectivity checks.
+- tests/test_connectivity_smoke.py performs optional Gemini connectivity smoke checks.
 
 ## 4. Data Contracts And Schemas
 
@@ -229,7 +229,7 @@ Known limitations:
 Open questions:
 - Should target energy be clamped when derived from user profile text?
 - Should genre inference be added to Agent 1 or kept for Agent 2?
-- Should connectivity_check be integrated into CLI startup or kept as standalone utility?
+- Should Gemini connectivity smoke checks remain test-only or integrate into CLI startup?
 
 ## One-Shot Build Readiness Checklist
 
