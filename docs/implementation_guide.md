@@ -89,6 +89,7 @@ Output payload:
 - confidence: float in [0.0, 1.0]
 - energy_hint: float in [0.0, 1.0] or null
 - mood_candidates: list[str]
+- notes: str
 
 Validation and fallback:
 - detected_mood must be an allowed mood label.
@@ -104,7 +105,8 @@ Example payload:
   "detected_mood": "happy",
   "confidence": 0.63,
   "energy_hint": 0.85,
-  "mood_candidates": ["happy", "intense", "chill"]
+  "mood_candidates": ["happy", "intense", "chill"],
+  "notes": "keyword-based mood match: happy"
 }
 ```
 

@@ -11,6 +11,8 @@ def test_analyze_mood_returns_valid_schema_payload():
     assert 0.0 <= payload["confidence"] <= 1.0
     assert isinstance(payload["mood_candidates"], list)
     assert len(payload["mood_candidates"]) >= 1
+    assert isinstance(payload["notes"], str)
+    assert payload["notes"].strip() != ""
 
 
 def test_analyze_mood_falls_back_when_text_is_ambiguous():
@@ -19,6 +21,7 @@ def test_analyze_mood_falls_back_when_text_is_ambiguous():
     assert payload["detected_mood"] == "balanced"
     assert payload["confidence"] < 0.55
     assert payload["mood_candidates"] == ["balanced"]
+    assert payload["notes"] == "low-confidence fallback to balanced"
 
 
 def test_analyze_mood_honors_trace_id_and_agent_wrapper():

@@ -5,6 +5,7 @@ This file tracks implementation ideas and execution scope for the 7-day roadmap.
 
 ## Current Status
 - Day 1 refactor is complete: models split, import cleanup, shared diversity logic, CLI table cleanup.
+- Agent 1 mood analysis is complete: schema, fallback behavior, notes field, and smoke coverage are in place.
 - Existing recommender tests pass.
 
 ## Guiding Principles
@@ -46,7 +47,6 @@ flowchart LR
   - Keep recommendation logic in `src/recommender.py`
   - Consolidate diversity penalties into one helper
   - Ensure CLI runs from multiple entry points
-- Remaining:
   - Confirm LangChain + Gemini minimal connectivity check
 
 ### Day 2 - Agent 1 (Mood Analyst)
@@ -60,6 +60,8 @@ flowchart LR
   - Valid schema
   - Handles unknown/ambiguous mood text
   - Real API smoke test
+- Status:
+  - Completed
 
 ### Day 3 - Agent 2 (Profile Parser)
 - Goal: Convert user intent and Mood Analyst output into recommender-ready preferences.

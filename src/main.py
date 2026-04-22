@@ -1,12 +1,10 @@
 """
 Command line runner for the Music Recommender Simulation.
 
-This file helps you quickly run and test your recommender.
-
-You will implement the functions in recommender.py:
-- load_songs
-- score_song
-- recommend_songs
+This CLI shows the current project state:
+- Deterministic recommendation scoring in src.recommender
+- Agent 1 mood parsing in src.agents.agent1_mood
+- A lightweight bridge from user text to recommender-ready prefs
 """
 
 import os
@@ -30,6 +28,15 @@ def _format_prefs(user_prefs: dict) -> str:
     for key in keys:
         if key in user_prefs:
             parts.append(f"{key}={user_prefs[key]}")
+    return " | ".join(parts)
+
+
+def _format_agent_payload(payload: dict) -> str:
+    keys = ["detected_mood", "confidence", "energy_hint", "notes"]
+    parts = []
+    for key in keys:
+        if key in payload:
+            parts.append(f"{key}={payload[key]}")
     return " | ".join(parts)
 
 
@@ -89,6 +96,10 @@ def _prefs_from_agent_message(message: str, default_genre: str = "pop") -> tuple
 def main() -> None:
     songs_csv = os.path.join(PROJECT_ROOT, "data", "songs.csv")
     songs = load_songs(songs_csv)
+
+    print("\nMusic Recommender Simulation")
+    print("Current focus: Day 1 is locked in, Agent 1 is complete, Day 3 is next.\n")
+
     profiles = [
         (
             "Conflict profile: high energy + sad",
@@ -133,7 +144,7 @@ def main() -> None:
         user_prefs, mood_payload = _prefs_from_agent_message(message)
         recommendations = recommend_songs(user_prefs, songs, k=3)
         print(f"message: {message}")
-        print(f"agent payload: {mood_payload}")
+        print(f"agent payload: {_format_agent_payload(mood_payload)}")
         _print_recommendation_table("Agent-derived profile", user_prefs, recommendations)
 
 

@@ -143,6 +143,20 @@ def _choose_energy_hint(tokens: List[str], detected_mood: str, confidence: float
     return None
 
 
+def _build_notes(
+    detected_mood: str,
+    confidence: float,
+    top_mood: str,
+    top_score: float,
+    tokens: List[str],
+) -> str:
+    if detected_mood == FALLBACK_MOOD:
+        return "low-confidence fallback to balanced"
+    if top_score <= 0.0 or not tokens:
+        return "no strong mood keywords detected"
+    return f"keyword-based mood match: {top_mood}"
+
+
 def analyze_mood(user_message: str, optional_context: Optional[Dict[str, Any]] = None, trace_id: Optional[str] = None) -> Dict[str, Any]:
     text = (user_message or "").strip()
     context = optional_context or {}
@@ -167,6 +181,7 @@ def analyze_mood(user_message: str, optional_context: Optional[Dict[str, Any]] =
         candidates = [FALLBACK_MOOD]
 
     energy_hint = _choose_energy_hint(tokens, detected_mood, confidence)
+    notes = _build_notes(detected_mood, confidence, top_mood, top_score, tokens)
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -175,6 +190,7 @@ def analyze_mood(user_message: str, optional_context: Optional[Dict[str, Any]] =
         "confidence": round(_clamp_01(confidence), 4),
         "energy_hint": energy_hint,
         "mood_candidates": candidates,
+        "notes": notes,
     }
 
 

@@ -76,6 +76,7 @@ python -m pytest -q -m smoke
 - src/agents/agent1_mood.py
   - Converts raw user message into normalized mood payload
   - Enforces confidence-based fallback to balanced
+  - Includes a short notes field describing the match or fallback
 - src/main.py
   - Runs adversarial profiles and agent-derived profile demos
 
@@ -93,9 +94,11 @@ Output JSON fields:
 - confidence: float in [0.0, 1.0]
 - energy_hint: float in [0.0, 1.0] or None
 - mood_candidates: list[str]
+- notes: str
 
 Fallback rule:
 - If confidence is below 0.55, detected_mood is set to balanced.
+- If the mood falls back, notes explains that the result was low-confidence.
 
 Example:
 
