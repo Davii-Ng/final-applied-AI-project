@@ -22,6 +22,11 @@ from src.agents.agent1_mood import analyze_mood
 from textwrap import wrap
 
 
+def _print_section(title: str) -> None:
+    rule = "=" * len(title)
+    print(f"\n{title}\n{rule}")
+
+
 def _format_prefs(user_prefs: dict) -> str:
     keys = ["genre", "mood", "energy", "likes_acoustic"]
     parts = []
@@ -31,13 +36,21 @@ def _format_prefs(user_prefs: dict) -> str:
     return " | ".join(parts)
 
 
-def _format_agent_payload(payload: dict) -> str:
-    keys = ["detected_mood", "confidence", "energy_hint", "notes"]
-    parts = []
-    for key in keys:
-        if key in payload:
-            parts.append(f"{key}={payload[key]}")
-    return " | ".join(parts)
+def _print_agent_payload(payload: dict) -> None:
+    confidence = payload.get("confidence")
+    confidence_text = f"{confidence:.2f}" if isinstance(confidence, (float, int)) else str(confidence)
+    candidates = payload.get("mood_candidates", [])
+    candidates_text = ", ".join(candidates) if isinstance(candidates, list) and candidates else "none"
+    fallback_used = payload.get("detected_mood") == "balanced" and confidence is not None and confidence < 0.55
+
+    print("agent payload summary:")
+    print(f"  trace_id: {payload.get('trace_id', 'missing')}")
+    print(f"  detected_mood: {payload.get('detected_mood', 'missing')}")
+    print(f"  confidence: {confidence_text}")
+    print(f"  energy_hint: {payload.get('energy_hint')}")
+    print(f"  mood_candidates: {candidates_text}")
+    print(f"  fallback_used: {'yes' if fallback_used else 'no'}")
+    print(f"  notes: {payload.get('notes', 'missing')}")
 
 
 def _print_recommendation_table(profile_name: str, user_prefs: dict, recommendations) -> None:
@@ -97,8 +110,8 @@ def main() -> None:
     songs_csv = os.path.join(PROJECT_ROOT, "data", "songs.csv")
     songs = load_songs(songs_csv)
 
-    print("\nMusic Recommender Simulation")
-    print("Current focus: Day 1 is locked in, Agent 1 is complete, Day 3 is next.\n")
+    _print_section("Music Recommender Simulation")
+    print("Current focus: Day 1 is locked in, Agent 1 is complete, Day 3 is next.")
 
     profiles = [
         (
@@ -130,12 +143,12 @@ def main() -> None:
         ),
     ]
 
-    print("\nAdversarial profile results:\n")
+    _print_section("Adversarial Profile Results")
     for profile_name, user_prefs in profiles:
         recommendations = recommend_songs(user_prefs, songs, k=3)
         _print_recommendation_table(profile_name, user_prefs, recommendations)
 
-    print("Agent 1 to recommender demo:\n")
+    _print_section("Agent 1 To Recommender Demo")
     agent_messages = [
         "Need hype songs for a workout run tonight",
         "Give me calm lofi study music",
@@ -144,7 +157,7 @@ def main() -> None:
         user_prefs, mood_payload = _prefs_from_agent_message(message)
         recommendations = recommend_songs(user_prefs, songs, k=3)
         print(f"message: {message}")
-        print(f"agent payload: {_format_agent_payload(mood_payload)}")
+        _print_agent_payload(mood_payload)
         _print_recommendation_table("Agent-derived profile", user_prefs, recommendations)
 
 
