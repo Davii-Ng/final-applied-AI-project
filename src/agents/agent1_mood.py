@@ -33,6 +33,14 @@ MOOD_KEYWORDS: Dict[str, Dict[str, float]] = {
         "fun": 0.7,
         "party": 0.8,
         "euphoric": 1.1,
+        "excited": 1.0,
+        "great": 0.8,
+        "amazing": 0.9,
+        "good": 0.6,
+        "blessed": 0.9,
+        "vibing": 0.8,
+        "lit": 0.7,
+        "celebrate": 1.0,
     },
     "chill": {
         "chill": 1.2,
@@ -42,6 +50,12 @@ MOOD_KEYWORDS: Dict[str, Dict[str, float]] = {
         "breezy": 0.8,
         "lofi": 0.9,
         "study": 0.8,
+        "cozy": 0.9,
+        "lazy": 0.8,
+        "slow": 0.7,
+        "sunday": 0.7,
+        "coffee": 0.6,
+        "afternoon": 0.6,
     },
     "relaxed": {
         "relaxed": 1.2,
@@ -50,6 +64,11 @@ MOOD_KEYWORDS: Dict[str, Dict[str, float]] = {
         "unwind": 1.0,
         "gentle": 0.8,
         "mellow": 0.9,
+        "peaceful": 1.0,
+        "wind": 0.7,
+        "breathe": 0.8,
+        "rest": 0.8,
+        "calmdown": 0.9,
     },
     "moody": {
         "moody": 1.3,
@@ -58,6 +77,11 @@ MOOD_KEYWORDS: Dict[str, Dict[str, float]] = {
         "atmospheric": 0.9,
         "vibe": 0.6,
         "night": 0.6,
+        "cloudy": 0.7,
+        "complicated": 0.8,
+        "complex": 0.7,
+        "introspective": 1.0,
+        "overthinking": 0.9,
     },
     "sad": {
         "sad": 1.3,
@@ -66,6 +90,15 @@ MOOD_KEYWORDS: Dict[str, Dict[str, float]] = {
         "lonely": 1.0,
         "melancholy": 1.2,
         "blue": 0.8,
+        "down": 0.8,
+        "depressed": 1.1,
+        "hurt": 0.9,
+        "miss": 0.8,
+        "lost": 0.7,
+        "broken": 1.0,
+        "upset": 0.9,
+        "crying": 1.1,
+        "tears": 1.0,
     },
     "intense": {
         "intense": 1.3,
@@ -75,6 +108,22 @@ MOOD_KEYWORDS: Dict[str, Dict[str, float]] = {
         "aggressive": 1.1,
         "workout": 1.2,
         "pump": 1.1,
+        "gym": 1.3,
+        "grind": 1.0,
+        "beast": 1.1,
+        "energy": 0.9,
+        "fire": 1.0,
+        "crush": 0.9,
+        "push": 0.9,
+        "training": 1.1,
+        "lifting": 1.1,
+        "run": 0.9,
+        "running": 1.0,
+        "sprint": 1.1,
+        "motivated": 1.0,
+        "lets": 0.7,
+        "go": 0.6,
+        "hit": 0.8,
     },
     "focused": {
         "focused": 1.3,
@@ -84,6 +133,21 @@ MOOD_KEYWORDS: Dict[str, Dict[str, float]] = {
         "coding": 0.8,
         "productive": 1.1,
         "instrumental": 0.8,
+        "lock": 1.2,
+        "locked": 1.2,
+        "grind": 0.9,
+        "hustle": 1.0,
+        "work": 0.9,
+        "working": 0.9,
+        "task": 0.9,
+        "deadline": 1.1,
+        "studying": 1.0,
+        "homework": 0.9,
+        "concentrate": 1.1,
+        "dialed": 1.0,
+        "mode": 0.7,
+        "flow": 0.8,
+        "zone": 0.9,
     },
     "nostalgic": {
         "nostalgic": 1.3,
@@ -93,7 +157,37 @@ MOOD_KEYWORDS: Dict[str, Dict[str, float]] = {
         "old": 0.6,
         "memories": 1.0,
         "classic": 0.8,
+        "remember": 0.9,
+        "childhood": 1.0,
+        "back": 0.6,
+        "miss": 0.7,
+        "used": 0.5,
+        "days": 0.5,
     },
+}
+
+# Multi-word phrase → mood boost applied before token scoring.
+PHRASE_MOOD_MAP: Dict[str, tuple] = {
+    "hit the gym": ("intense", 2.0),
+    "hitting the gym": ("intense", 2.0),
+    "at the gym": ("intense", 1.5),
+    "going to the gym": ("intense", 2.0),
+    "lock in": ("focused", 2.0),
+    "locking in": ("focused", 2.0),
+    "locked in": ("focused", 2.0),
+    "get stuff done": ("focused", 1.8),
+    "get things done": ("focused", 1.8),
+    "grind time": ("focused", 1.8),
+    "in my feels": ("moody", 1.8),
+    "feeling myself": ("happy", 1.5),
+    "good vibes": ("happy", 1.5),
+    "feeling down": ("sad", 1.8),
+    "feeling sad": ("sad", 2.0),
+    "need to cry": ("sad", 2.0),
+    "wind down": ("relaxed", 1.8),
+    "take it easy": ("relaxed", 1.5),
+    "chill out": ("chill", 1.8),
+    "kick back": ("chill", 1.5),
 }
 
 HIGH_ENERGY_HINTS = {"hype", "workout", "party", "dance", "running", "sprint", "intense", "pump"}
@@ -120,11 +214,15 @@ def _tokenize(text: str) -> List[str]:
     return re.findall(r"[a-z0-9']+", text.lower())
 
 
-def _score_moods(tokens: List[str]) -> Dict[str, float]:
+def _score_moods(tokens: List[str], text: str = "") -> Dict[str, float]:
     scores = {mood: 0.0 for mood in ALLOWED_MOODS if mood != FALLBACK_MOOD}
     for token in tokens:
         for mood, weighted_keywords in MOOD_KEYWORDS.items():
             scores[mood] += weighted_keywords.get(token, 0.0)
+    normalized = text.lower()
+    for phrase, (mood, boost) in PHRASE_MOOD_MAP.items():
+        if phrase in normalized:
+            scores[mood] += boost
     return scores
 
 
@@ -205,13 +303,22 @@ def _extract_json_content(raw_content: str) -> Optional[Dict[str, Any]]:
 def _gemini_prompt(user_message: str, optional_context: Optional[Dict[str, Any]]) -> str:
     context = optional_context or {}
     return (
-        "You are Agent 1 mood parser for a music recommender. "
+        "You are Agent 1, a mood parser for a music recommender. "
+        "Your job is to infer the user's emotional state and energy level from casual, everyday language. "
+        "Interpret colloquial and slang phrases semantically — for example: "
+        "'hitting the gym' or 'beast mode' → intense; "
+        "'gotta lock in' or 'need to focus' → focused; "
+        "'in my feels' or 'going through it' → moody; "
+        "'good vibes only' or 'feeling myself' → happy; "
+        "'wind down' or 'take it easy' → relaxed. "
         "Return strict JSON only (no markdown) with keys: "
         "detected_mood, confidence, energy_hint, mood_candidates, notes. "
         "Rules: detected_mood must be one of "
         "[happy,chill,relaxed,moody,sad,intense,focused,nostalgic,balanced]. "
-        "confidence must be a float between 0 and 1. energy_hint must be null or float between 0 and 1. "
+        "confidence must be a float between 0 and 1. energy_hint must be null or a float between 0 and 1 "
+        "(0.0=very calm, 1.0=maximum energy). "
         "mood_candidates must be up to 3 moods from the allowed set. "
+        "notes should briefly explain your reasoning in plain English. "
         f"User message: {user_message!r}. "
         f"Optional context: {context!r}."
     )
@@ -222,7 +329,7 @@ def _local_analyze_mood(user_message: str, optional_context: Optional[Dict[str, 
     context = optional_context or {}
     tokens = _tokenize(text)
 
-    scores = _score_moods(tokens)
+    scores = _score_moods(tokens, text)
 
     # Optional context can lightly bias mood ranking when available.
     prior_mood = str(context.get("prior_mood", "")).lower()

@@ -110,8 +110,8 @@ def _score_song_data(song: Dict[str, Any], user_prefs: Dict[str, Any]) -> Tuple[
         reasons.append("mood match (+5.0)")
 
     energy_score = _gaussian_similarity(_safe_float(song.get("energy", 0.0), 0.0), target_energy)
-    score += energy_score * 6.0
-    reasons.append(f"energy close to target (+{energy_score * 6.0:.2f})")
+    score += energy_score * 3.5
+    reasons.append(f"energy close to target (+{energy_score * 3.5:.2f})")
 
     tempo_target = 120.0 if target_energy >= 0.7 else 90.0
     tempo_score = _gaussian_similarity(_safe_float(song.get("tempo_bpm", 0.0), 0.0), tempo_target, sigma=20.0)
@@ -235,22 +235,29 @@ class Recommender:
 
     def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
         """Return the top k songs ranked by recommendation score."""
-        scored_songs = sorted(
-            ((song, self._score_song(user, song)[0]) for song in self.songs),
-            key=lambda item: item[1],
-            reverse=True,
-        )
+        remaining = list(self.songs)
+        chosen: List[Song] = []
 
-        ranked_songs: List[Tuple[Song, float]] = []
-        chosen_songs: List[Song] = []
+        for _ in range(min(k, len(remaining))):
+            best_song = None
+            best_score = float("-inf")
+            best_idx = -1
 
-        for song, base_score in scored_songs:
-            penalty, _ = self._diversity_penalty(song, chosen_songs)
-            ranked_songs.append((song, base_score - penalty))
-            chosen_songs.append(song)
+            for i, song in enumerate(remaining):
+                base_score, _ = self._score_song(user, song)
+                penalty, _ = self._diversity_penalty(song, chosen)
+                if base_score - penalty > best_score:
+                    best_score = base_score - penalty
+                    best_song = song
+                    best_idx = i
 
-        ranked_songs.sort(key=lambda item: item[1], reverse=True)
-        return [song for song, _ in ranked_songs[:k]]
+            if best_song is None:
+                break
+
+            chosen.append(best_song)
+            remaining.pop(best_idx)
+
+        return chosen
 
     def explain_recommendation(self, user: UserProfile, song: Song) -> str:
         """Return a short human-readable explanation for a song score."""
@@ -289,26 +296,34 @@ def load_songs(csv_path: str) -> List[Dict]:
 
 def recommend_songs(user_prefs: Dict, songs: List[Dict], k: int = 5) -> List[Tuple[Dict, float, str]]:
     """Score all songs, rank them, and return the top k recommendations."""
-    recommendations: List[Tuple[Dict, float, List[str]]] = []
-
+    scored: List[Tuple[Dict, float, List[str]]] = []
     for song in songs:
-        score, reasons = _score_song_data(song, user_prefs)
-        recommendations.append((song, score, reasons))
+        base_score, reasons = _score_song_data(song, user_prefs)
+        scored.append((song, base_score, reasons))
 
-    recommendations.sort(key=lambda item: item[1], reverse=True)
-
-    ranked_recommendations: List[Tuple[Dict, float, List[str]]] = []
+    remaining = list(scored)
+    results: List[Tuple[Dict, float, List[str]]] = []
     chosen_songs: List[Dict] = []
 
-    for song, base_score, reasons in recommendations:
-        chosen_pairs = [(existing_song["artist"], existing_song["genre"]) for existing_song in chosen_songs]
-        penalty, penalty_reasons = _diversity_penalty_values(song["artist"], song["genre"], chosen_pairs)
+    for _ in range(min(k, len(remaining))):
+        best_idx = -1
+        best_adjusted = float("-inf")
+        best_reasons: List[str] = []
 
-        adjusted_score = base_score - penalty
-        adjusted_reasons = list(reasons)
-        adjusted_reasons.extend(penalty_reasons)
-        ranked_recommendations.append((song, adjusted_score, adjusted_reasons))
-        chosen_songs.append(song)
+        for i, (song, base_score, reasons) in enumerate(remaining):
+            chosen_pairs = [(s["artist"], s["genre"]) for s in chosen_songs]
+            penalty, penalty_reasons = _diversity_penalty_values(song["artist"], song["genre"], chosen_pairs)
+            adjusted = base_score - penalty
+            if adjusted > best_adjusted:
+                best_adjusted = adjusted
+                best_idx = i
+                best_reasons = list(reasons) + penalty_reasons
 
-    ranked_recommendations.sort(key=lambda item: item[1], reverse=True)
-    return ranked_recommendations[:k]
+        if best_idx == -1:
+            break
+
+        best_song, _, _ = remaining.pop(best_idx)
+        results.append((best_song, best_adjusted, best_reasons))
+        chosen_songs.append(best_song)
+
+    return results

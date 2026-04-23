@@ -150,7 +150,7 @@ def main() -> None:
     print("Type 'exit' to quit.")
 
     k = _prompt_top_k(default_k=3)
-    backend = _prompt_backend(default_backend="auto")
+    backend = _prompt_backend(default_backend="gemini")
     output_mode = _prompt_output_mode(default_mode="compact")
 
     while True:
