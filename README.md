@@ -1,18 +1,19 @@
 # Music Recommender Simulation
 
-Terminal-first music recommender with deterministic ranking and agent-style parsing:
-- Deterministic ranking in src/recommender.py
-- Agent-style mood parsing in src/agents/agent1_mood.py
-- Agent-style profile parsing in src/agents/agent2_profile.py
+Terminal-first multi-agent DJ recommender with a rebuilt 4-agent pipeline:
+- Agent 1 mood analysis in src/agents/agent1_mood.py
+- Agent 2 profile parsing in src/agents/agent2_profile.py
+- Agent 3 setlist curation in src/agents/agent3_setlist.py
+- Agent 4 narration in src/agents/agent4_narrator.py
+- Unified orchestration in src/orchestrator.py
 
 ## What this project does
 
 - Loads songs from data/songs.csv
-- Scores songs against user preferences with weighted signals
-- Applies diversity penalties to reduce repeated artist/genre picks
-- Produces ranked output in a CLI table
-- Demonstrates an Agent 1 mood-to-profile bridge in src/main.py
-- Includes a standalone Agent 2 parser contract validated by tests
+- Runs a full 4-agent flow from user vibe to DJ narrative
+- Uses deterministic ranking with weighted signals and diversity penalties
+- Produces ranked output with reasons and narration text
+- Supports interactive input in src/cli.py
 
 ## Quick Start
 
@@ -39,7 +40,7 @@ pip install -r requirements.txt
 3. Run the CLI.
 
 ```bash
-python -m src.main
+python -m src.cli
 ```
 
 Alternative:
@@ -53,6 +54,7 @@ Optional editable install and script entrypoint:
 ```bash
 pip install -e .
 dj-recommender
+dj-recommender-cli
 ```
 
 4. Run tests.
@@ -79,16 +81,31 @@ Note:
 - src/recommender.py
   - Functional scoring and ranking pipeline
   - OOP Recommender class used by tests
+- src/retrieval.py
+  - Lightweight RAG-lite retrieval stage used by Agent 3
+  - Filters songs by avoid_genres, scores by token overlap with profile, returns a candidate pool with debug metadata
 - src/agents/agent1_mood.py
   - Converts raw user message into normalized mood payload
   - Enforces confidence-based fallback to balanced
   - Includes a short notes field describing the match or fallback
+  - Supports local (rule-based), gemini, and auto backends
 - src/agents/agent2_profile.py
   - Converts user message and Agent 1 payload into recommender-ready profile data
   - Normalizes genres, mood aliases, and energy inputs
   - Tracks inferred and missing fields through a constraints payload
-- src/main.py
-  - Runs adversarial profiles and Agent 1-derived profile demos
+- src/agents/agent3_setlist.py
+  - Converts Agent 2 profile payload into ranked setlist output
+  - Runs retrieval stage first, then deterministic scoring
+  - Returns schema version, trace id, setlist, explanations, profile echo, and retrieval debug
+- src/agents/agent4_narrator.py
+  - Converts ranked setlist into intro, transitions, and closing narration
+  - Supports persona dict with a style field (friendly or concise)
+- src/orchestrator.py
+  - Runs Agent 1 -> Agent 2 -> Agent 3 -> Agent 4 with shared trace_id
+  - Exposes run_pipeline with configurable backend and persona
+- src/cli.py
+  - Interactive runtime for the rebuilt pipeline
+  - Prompts for k, backend, and output mode before the loop
 
 ## Agent 1 Contract
 
@@ -151,6 +168,53 @@ Behavior highlights:
 - Unknown genre text falls back to context genre, then default pop.
 - avoid_genres is extracted from negation phrases such as "no rap" and "avoid edm".
 
+## Agent 3 Contract
+
+Input:
+- agent2_payload: dict
+- songs: list[dict]
+- k: int
+- candidate_pool_size: int (default 20)
+- trace_id: str or None
+
+Output JSON fields:
+- schema_version: str
+- trace_id: str
+- setlist: list[dict]
+  - rank: int
+  - title: str
+  - artist: str
+  - score: float
+- explanations: list[str]
+- profile_echo: dict
+- retrieval: dict (debug metadata from retrieval stage)
+  - retriever: str
+  - query_tokens: list[str]
+  - candidates_before: int
+  - candidates_after: int
+  - filtered_avoid_genres: int
+  - retrieval_fallback: bool
+
+Behavior:
+- Runs src/retrieval.py retrieve_candidates first to build a candidate pool
+- Applies avoid_genres filter before scoring
+- Falls back to full catalog minus avoids if retrieval returns no candidates
+
+## Agent 4 Contract
+
+Input:
+- agent3_payload: dict
+- persona: dict or None
+- trace_id: str or None
+
+Output JSON fields:
+- schema_version: str
+- trace_id: str
+- intro: str
+- track_transitions: list[str]
+- closing: str
+- safety_notes: list[str]
+
 ## Recommender Behavior Summary
 
 - Strong boosts for exact mood and genre matches
@@ -165,16 +229,25 @@ Behavior highlights:
 src/
   __init__.py
   main.py
+  cli.py
   models.py
   recommender.py
+  retrieval.py
+  orchestrator.py
   agents/
     __init__.py
     agent1_mood.py
     agent2_profile.py
+    agent3_setlist.py
+    agent4_narrator.py
 tests/
   test_recommender.py
   test_agent1_mood.py
   test_agent2_profile.py
+  test_agent3_setlist.py
+  test_agent4_narrator.py
+  test_orchestrator.py
+  test_pipeline_smoke.py
   test_connectivity_smoke.py
 data/
   songs.csv

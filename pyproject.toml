@@ -15,6 +15,7 @@ dependencies = [
 
 [project.scripts]
 dj-recommender = "src.main:main"
+dj-recommender-cli = "src.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,3 +1,5 @@
+import json
+import os
 import re
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -5,6 +7,7 @@ from uuid import uuid4
 SCHEMA_VERSION = "1.0"
 FALLBACK_MOOD = "balanced"
 CONFIDENCE_FALLBACK_THRESHOLD = 0.55
+DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview"
 
 ALLOWED_MOODS = {
     "happy",
@@ -157,7 +160,64 @@ def _build_notes(
     return f"keyword-based mood match: {top_mood}"
 
 
-def analyze_mood(user_message: str, optional_context: Optional[Dict[str, Any]] = None, trace_id: Optional[str] = None) -> Dict[str, Any]:
+def _coerce_allowed_moods(raw_candidates: Any) -> List[str]:
+    if not isinstance(raw_candidates, list):
+        return []
+
+    normalized: List[str] = []
+    for candidate in raw_candidates:
+        mood = str(candidate).strip().lower()
+        if mood in ALLOWED_MOODS and mood not in normalized:
+            normalized.append(mood)
+    return normalized
+
+
+def _extract_json_content(raw_content: str) -> Optional[Dict[str, Any]]:
+    content = (raw_content or "").strip()
+    if not content:
+        return None
+
+    try:
+        parsed = json.loads(content)
+        return parsed if isinstance(parsed, dict) else None
+    except json.JSONDecodeError:
+        pass
+
+    block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, flags=re.DOTALL)
+    if block_match:
+        try:
+            parsed = json.loads(block_match.group(1))
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+
+    object_match = re.search(r"\{.*\}", content, flags=re.DOTALL)
+    if object_match:
+        try:
+            parsed = json.loads(object_match.group(0))
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
+
+    return None
+
+
+def _gemini_prompt(user_message: str, optional_context: Optional[Dict[str, Any]]) -> str:
+    context = optional_context or {}
+    return (
+        "You are Agent 1 mood parser for a music recommender. "
+        "Return strict JSON only (no markdown) with keys: "
+        "detected_mood, confidence, energy_hint, mood_candidates, notes. "
+        "Rules: detected_mood must be one of "
+        "[happy,chill,relaxed,moody,sad,intense,focused,nostalgic,balanced]. "
+        "confidence must be a float between 0 and 1. energy_hint must be null or float between 0 and 1. "
+        "mood_candidates must be up to 3 moods from the allowed set. "
+        f"User message: {user_message!r}. "
+        f"Optional context: {context!r}."
+    )
+
+
+def _local_analyze_mood(user_message: str, optional_context: Optional[Dict[str, Any]], trace_id: Optional[str]) -> Dict[str, Any]:
     text = (user_message or "").strip()
     context = optional_context or {}
     tokens = _tokenize(text)
@@ -194,6 +254,110 @@ def analyze_mood(user_message: str, optional_context: Optional[Dict[str, Any]] =
     }
 
 
+def _gemini_analyze_mood(
+    user_message: str,
+    optional_context: Optional[Dict[str, Any]],
+    trace_id: Optional[str],
+    model: str,
+    api_key: Optional[str],
+    llm_class: Any,
+    message_class: Any,
+) -> Dict[str, Any]:
+    llm = llm_class(model=model, google_api_key=api_key, temperature=0)
+    response = llm.invoke([message_class(content=_gemini_prompt(user_message, optional_context))])
+    response_content = str(getattr(response, "content", response))
+
+    payload = _extract_json_content(response_content)
+    if payload is None:
+        raise ValueError("Gemini response did not contain valid JSON object")
+
+    raw_mood = str(payload.get("detected_mood", FALLBACK_MOOD)).lower()
+    raw_confidence = payload.get("confidence", 0.0)
+    raw_energy_hint = payload.get("energy_hint")
+    raw_candidates = payload.get("mood_candidates", [])
+
+    detected_mood = raw_mood if raw_mood in ALLOWED_MOODS else FALLBACK_MOOD
+
+    try:
+        confidence = _clamp_01(float(raw_confidence))
+    except (TypeError, ValueError):
+        confidence = 0.0
+
+    if confidence < CONFIDENCE_FALLBACK_THRESHOLD:
+        detected_mood = FALLBACK_MOOD
+
+    try:
+        energy_hint = _clamp_01(float(raw_energy_hint)) if raw_energy_hint is not None else None
+    except (TypeError, ValueError):
+        energy_hint = None
+
+    candidates = _coerce_allowed_moods(raw_candidates)[:3]
+    if not candidates:
+        candidates = [detected_mood]
+
+    notes = str(payload.get("notes", "gemini mood parse")).strip() or "gemini mood parse"
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "trace_id": trace_id or str(uuid4()),
+        "detected_mood": detected_mood,
+        "confidence": round(confidence, 4),
+        "energy_hint": energy_hint,
+        "mood_candidates": candidates,
+        "notes": notes,
+    }
+
+
+def analyze_mood(
+    user_message: str,
+    optional_context: Optional[Dict[str, Any]] = None,
+    trace_id: Optional[str] = None,
+    backend: str = "local",
+    model: str = DEFAULT_GEMINI_MODEL,
+    api_key: Optional[str] = None,
+    llm_class: Any = None,
+    message_class: Any = None,
+) -> Dict[str, Any]:
+    selected_backend = (backend or "local").strip().lower()
+
+    if selected_backend == "local":
+        return _local_analyze_mood(user_message, optional_context, trace_id)
+
+    if selected_backend not in {"gemini", "auto"}:
+        raise ValueError("backend must be one of: local, gemini, auto")
+
+    resolved_key = api_key or os.getenv("GOOGLE_API_KEY")
+    should_try_gemini = selected_backend == "gemini" or bool(resolved_key)
+
+    if should_try_gemini:
+        try:
+            if llm_class is None or message_class is None:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                from langchain_core.messages import HumanMessage
+
+                llm_class = ChatGoogleGenerativeAI
+                message_class = HumanMessage
+
+            if not resolved_key:
+                raise ValueError("missing GOOGLE_API_KEY")
+
+            return _gemini_analyze_mood(
+                user_message=user_message,
+                optional_context=optional_context,
+                trace_id=trace_id,
+                model=model,
+                api_key=resolved_key,
+                llm_class=llm_class,
+                message_class=message_class,
+            )
+        except Exception as exc:
+            local_payload = _local_analyze_mood(user_message, optional_context, trace_id)
+            local_payload["notes"] = f"{local_payload['notes']} | gemini fallback: {exc}"
+            return local_payload
+
+    return _local_analyze_mood(user_message, optional_context, trace_id)
+
+
 class MoodAnalyst:
     """Agent 1 that converts free text into a normalized mood payload."""
 
@@ -202,5 +366,15 @@ class MoodAnalyst:
         user_message: str,
         optional_context: Optional[Dict[str, Any]] = None,
         trace_id: Optional[str] = None,
+        backend: str = "local",
+        model: str = DEFAULT_GEMINI_MODEL,
+        api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
-        return analyze_mood(user_message=user_message, optional_context=optional_context, trace_id=trace_id)
+        return analyze_mood(
+            user_message=user_message,
+            optional_context=optional_context,
+            trace_id=trace_id,
+            backend=backend,
+            model=model,
+            api_key=api_key,
+        )

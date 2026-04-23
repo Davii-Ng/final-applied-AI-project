@@ -1,247 +1,204 @@
 # Multi-Agent DJ Recommender Plan
 
 ## Purpose
-This file tracks implementation ideas and execution scope for the 7-day roadmap.
+This plan defines execution scope for a demo-first technical prototype that showcases multi-agent AI architecture for music recommendation.
+
+## Product Framing
+- This is an internal technical showcase, not a consumer product launch.
+- Primary audience: leadership stakeholders evaluating architecture quality.
+- Demo objective: show visible agentic reasoning from user vibe to ranked playlist.
 
 ## Current Status
-- Day 1 refactor is complete: models split, import cleanup, shared diversity logic, CLI table cleanup.
-- Agent 1 mood analysis is complete: schema, fallback behavior, notes field, and smoke coverage are in place.
-- Existing recommender tests pass.
+- Day 1 setup and refactor are complete.
+- Agent 1 (Mood Analyst) is implemented with schema validation and fallback behavior. Supports local, gemini, and auto backends.
+- Agent 2 (Profile Parser) is implemented with structured profile + constraints output.
+- Agent 3 (Setlist Curator) is implemented. Runs a RAG-lite retrieval stage (src/retrieval.py) before deterministic scoring, returns ranked setlist with retrieval debug metadata.
+- Agent 4 (Narrator) is implemented. Produces intro, track_transitions, and closing. Supports persona styles.
+- Orchestrator (src/orchestrator.py) wires all four agents with shared trace_id.
+- Interactive CLI (src/cli.py) and demo runner (src/main.py) both call the orchestrator.
+- Deterministic ranking in `src/recommender.py` is active and tested.
+- All test suites (Agents 1-4, orchestrator, pipeline smoke) are present.
 
-## Guiding Principles
-- Keep each day focused on one major deliverable.
-- Add tests for every completed agent before moving on.
-- Keep JSON handoffs stable and versioned early.
-- Prefer small, reversible changes over big rewrites.
+## Core Value Proposition
+The project demonstrates:
+1. Intent parsing that handles messy natural language vibes.
+2. Grounded retrieval/ranking over known local catalog data.
+3. Legible, step-by-step agent outputs in CLI for demo transparency.
 
-## Pipeline Diagram
+## Architecture Overview
 
 ```mermaid
 flowchart LR
   U[User Prompt] --> O[Orchestrator]
-  O --> A1[Mood Analyst]
-  A1 --> H12[Handoff 1 to 2<br/>detected_mood confidence energy_hint]
-  H12 --> A2[Profile Parser]
-  A2 --> H23[Handoff 2 to 3<br/>profile constraints request_summary]
-  H23 --> A3[Setlist Curator]
+  O --> A1[Planner / Mood Analyst]
+  A1 --> H12[Handoff 1 to 2<br/>mood confidence energy hints]
+  H12 --> A2[Retriever / Profile Parser]
+  A2 --> H23[Handoff 2 to 3<br/>profile constraints summary]
+  H23 --> A3[Ranker / Setlist Curator]
   A3 --> T[Local Tool<br/>src.recommender]
   T --> A3
-  A3 --> H34[Handoff 3 to 4<br/>setlist explanations profile_echo]
-  H34 --> A4[DJ Narrator]
-  A4 --> C[CLI or Chat Output]
+  A3 --> H34[Handoff 3 to 4<br/>ranked set explanations]
+  H34 --> A4[Narrator]
+  A4 --> C[CLI Output]
 
   A1 -. low confidence .-> F[Fallback Policy]
   A2 -. missing fields .-> F
   A3 -. invalid profile .-> F
   A4 -. narration failure .-> F
   F --> O
-
-  O -. follow up message .-> A1
 ```
+
+## In Scope (v1)
+- Local CLI interface only.
+- Hand-labeled CSV catalog as data source.
+- 10-20 common vibe intents handled well (focus, gym, chill, sad, party, study, etc.).
+- Four-agent pipeline with visible reasoning outputs.
+- Strict JSON handoffs and traceability (`schema_version`, `trace_id`).
+
+## Out Of Scope (v1)
+- Playback integrations (Spotify/Apple Music).
+- GUI/web/mobile app.
+- Auth, accounts, multi-tenant support.
+- Large-scale real-time catalog ingestion.
+- Production deployment and cost/latency optimization.
+
+## Success Criteria
+At demo time, success means:
+1. Stakeholder enters free-form vibe and gets sensible ranked results within ~10-20 seconds.
+2. CLI trace clearly shows each agent contribution.
+3. Team can explain why multi-agent orchestration is better than a single-call baseline for this task.
+4. Leadership feedback focuses on architecture quality, not missing product features.
 
 ## 7-Day Execution Plan
 
 ### Day 1 - Refactor + Setup
 - Completed:
-  - Split `Song` and `UserProfile` into `src/models.py`
-  - Keep recommendation logic in `src/recommender.py`
-  - Consolidate diversity penalties into one helper
-  - Ensure CLI runs from multiple entry points
-  - Confirm LangChain + Gemini minimal connectivity check
+  - Split models into `src/models.py`
+  - Preserved ranking logic in `src/recommender.py`
+  - Consolidated diversity penalties
+  - Verified CLI run paths
 
-### Day 2 - Agent 1 (Mood Analyst)
-- Goal: Convert raw user text into normalized mood signal.
-- Output schema idea:
-  - `detected_mood` (string)
-  - `confidence` (float 0-1)
-  - `energy_hint` (float 0-1, optional)
-  - `notes` (short string)
-- Tests:
-  - Valid schema
-  - Handles unknown/ambiguous mood text
-  - Real API smoke test
-- Status:
-  - Completed
-
-### Day 3 - Agent 2 (Profile Parser)
-- Goal: Convert user intent and Mood Analyst output into recommender-ready preferences.
-- Output schema idea:
-  - `favorite_genre` or `genre_weights`
-  - `favorite_mood`
-  - `target_energy`
-  - `likes_acoustic`
-  - `avoid_genres` (optional)
+### Day 2 - Agent 1 (Planner / Mood Analyst)
+- Goal: Parse raw user vibe into normalized mood signal.
+- Deliverables:
+  - `detected_mood`, `confidence`, `energy_hint`, `mood_candidates`, `notes`
+  - Fallback behavior for ambiguous input
 - Tests:
   - Schema validation
-  - Fallback defaults for missing fields
-  - Real API call test
+  - Ambiguous input fallback
+  - Backend fallback behavior
+- Status: Completed
 
-### Day 4 - Agent 3 (Setlist Curator Tool)
-- Goal: Wrap existing Python scoring logic as a LangChain Tool (no LLM call inside tool).
+### Day 3 - Agent 2 (Retriever Prep / Profile Parser)
+- Goal: Convert intent + Agent 1 output into recommender-ready profile.
+- Deliverables:
+  - `profile` with genre, mood, energy, acoustic preference, avoid_genres
+  - `constraints` and `request_summary`
+- Tests:
+  - Schema + required fields
+  - Defaults/fallbacks
+  - Confidence-threshold behavior
+- Status: Completed
+
+### Day 4 - Agent 3 (Ranker / Setlist Curator)
+- Goal: Wrap deterministic scoring as tool-style agent output.
 - Input:
-  - Parsed profile JSON
-  - Song catalog path
+  - Agent 2 profile payload
+  - Catalog path
 - Output:
-  - Ranked track list with scores and reasons
+  - Ranked setlist with scores and explanations
 - Tests:
-  - Deterministic golden set test
+  - Golden ranking test
   - Tool contract test
-  - Regression test for ranking stability
+  - Regression stability test
+- Status: Completed
+  - src/agents/agent3_setlist.py implemented with curate_setlist and SetlistCurator
+  - src/retrieval.py implements RAG-lite retrieval stage with avoid_genres filtering
+  - retrieval debug metadata returned in every payload
+  - tests/test_agent3_setlist.py present
 
-### Day 5 - Agent 4 (DJ Narrator)
-- Goal: Turn curated setlist into personality-driven DJ narration.
-- Output schema idea:
-  - `intro`
-  - `track_transitions` (list)
-  - `closing`
+### Day 5 - Agent 4 (Narrator)
+- Goal: Produce compact DJ narration over ranked setlist.
+- Output:
+  - `intro`, `track_transitions`, `closing`
 - Tests:
-  - Schema validation
-  - Tone/style assertions (lightweight)
-  - Real API smoke test
+  - Schema checks
+  - Non-empty narrative assertions
+  - Optional smoke test for LLM-backed generation
+- Status: Completed
+  - src/agents/agent4_narrator.py implemented with narrate_setlist and DJNarrator
+  - Supports persona dict with style (friendly or concise)
+  - Empty setlist fallback included
+  - tests/test_agent4_narrator.py present
 
-### Day 6 - Pipeline + Chat Loop
-- Goal: Orchestrate all 4 agents and support follow-up prompts.
+### Day 6 - Orchestration + Demo Loop
+- Goal: Run all four agents in a single traceable CLI flow.
 - Flow:
-  - Mood Analyst -> Profile Parser -> Setlist Curator -> DJ Narrator
+  - Planner -> Retriever/Profile Parser -> Ranker -> Narrator
 - Tests:
-  - End-to-end pipeline integration test
-  - Follow-up message rerun behavior
+  - End-to-end integration
+  - Retry/escalation behavior
 - Stretch:
-  - Introduce LangGraph for feedback loop and state handling
+  - Add lightweight state machine / LangGraph orchestration
+- Status: Completed
+  - src/orchestrator.py implements run_pipeline with configurable backend and persona
+  - src/cli.py interactive CLI with k, backend, and output mode prompts
+  - src/main.py demo runner for two canned prompts
+  - tests/test_orchestrator.py and tests/test_pipeline_smoke.py present
 
-### Day 7 - Polish + Delivery
-- Goal: Production-like demo readiness.
+### Day 7 - Demo Polish + Delivery
+- Goal: Demo readiness for leadership audience.
 - Tasks:
-  - Upgrade CLI output with `rich`
-  - Update README with architecture and run instructions
-  - Final full test run
-  - Capture known limitations and future improvements
+  - Improve CLI readability and pacing
+  - Finalize README and architecture docs
+  - Run final test suite
+  - Capture limitations + next-step roadmap
 
-## JSON Handoff Drafts (First Pass)
-- Keep schemas strict enough for tests, but small enough to evolve quickly.
+## JSON Handoff Contracts
 
 ### Agent 1 -> Agent 2
+- `schema_version: str`
+- `trace_id: str`
 - `detected_mood: str`
 - `confidence: float`
 - `energy_hint: float | null`
+- `mood_candidates: list[str]`
+- `notes: str`
 
 ### Agent 2 -> Agent 3
+- `schema_version: str`
+- `trace_id: str`
 - `profile: dict`
 - `constraints: dict`
 - `request_summary: str`
 
 ### Agent 3 -> Agent 4
+- `schema_version: str`
+- `trace_id: str`
 - `setlist: list[dict]`
 - `explanations: list[str]`
 - `profile_echo: dict`
 
-## Agent Contract Sheet (v0.1)
+## Shared Agent Rules
+- Return valid JSON only.
+- Include `schema_version` and `trace_id` in every payload.
+- Apply fallback payloads rather than crash on low confidence or invalid input.
+- Keep outputs bounded and testable.
 
-### Shared Contract Rules
-- Every agent returns valid JSON only (no markdown, no prose wrappers).
-- Include `schema_version` in every payload.
-- Include `trace_id` so one user request can be traced across all agents.
-- If confidence is low or required fields are missing, agent returns a fallback payload instead of crashing.
-
-### Agent 1: Mood Analyst
-- Responsibility:
-  - Infer emotional intent from user message.
-  - Normalize mood label to allowed values.
-- Input:
-  - `user_message: str`
-  - `optional_context: dict`
-- Output:
-  - `schema_version: str`
-  - `trace_id: str`
-  - `detected_mood: str`
-  - `confidence: float`
-  - `energy_hint: float | null`
-  - `mood_candidates: list[str]`
-- Validation:
-  - `confidence` must be in [0.0, 1.0]
-  - `detected_mood` must be one of allowed labels
-- Fallback policy:
-  - If confidence < 0.55, set `detected_mood = "balanced"` and keep top candidates.
-
-### Agent 2: Profile Parser
-- Responsibility:
-  - Convert user intent + mood signal into structured preferences for ranking.
-- Input:
-  - Agent 1 payload
-  - Raw user preference text
-- Output:
-  - `schema_version: str`
-  - `trace_id: str`
-  - `profile: dict`
-    - `favorite_genre: str`
-    - `favorite_mood: str`
-    - `target_energy: float`
-    - `likes_acoustic: bool`
-    - `avoid_genres: list[str]`
-  - `constraints: dict`
-  - `request_summary: str`
-- Validation:
-  - Required keys in `profile` must exist
-  - `target_energy` clamped to [0.0, 1.0]
-- Fallback policy:
-  - Missing preferences get safe defaults and are flagged in `constraints.missing_fields`.
-
-### Agent 3: Setlist Curator (Tool-Driven)
-- Responsibility:
-  - Build ranked setlist using local recommender tool (no LLM call in scoring tool).
-- Input:
-  - Agent 2 payload
-  - Song catalog
-- Output:
-  - `schema_version: str`
-  - `trace_id: str`
-  - `setlist: list[dict]`
-    - `rank: int`
-    - `title: str`
-    - `artist: str`
-    - `score: float`
-  - `explanations: list[str]`
-  - `profile_echo: dict`
-- Validation:
-  - `setlist` length must match requested k
-  - `rank` order must be ascending from 1..k
-- Fallback policy:
-  - If profile invalid, return empty setlist plus actionable error field.
-
-### Agent 4: DJ Narrator
-- Responsibility:
-  - Turn curated setlist into DJ-style narrative text for CLI/chat output.
-- Input:
-  - Agent 3 payload
-  - Optional persona config
-- Output:
-  - `schema_version: str`
-  - `trace_id: str`
-  - `intro: str`
-  - `track_transitions: list[str]`
-  - `closing: str`
-  - `safety_notes: list[str]`
-- Validation:
-  - `track_transitions` count must align with setlist size
-  - No empty intro/closing
-- Fallback policy:
-  - If narration generation fails, output minimal neutral narration template.
-
-### Orchestrator Rules (Day 6)
-- Flow:
-  - Agent 1 -> Agent 2 -> Agent 3 -> Agent 4
-- Retry policy:
-  - One retry max for Agent 1/2/4 on schema failure
-  - No retry for Agent 3 tool errors without input fix
-- Escalation:
-  - If two consecutive schema failures occur, return a user-facing clarification request.
+## Open Decisions
+1. Is this prototype expected to become a productized project after the demo?
+2. Who owns CSV labeling quality and validation standard?
+3. What is the live-demo fallback if orchestration fails?
+4. Should we frame this externally as "multi-agent" or "orchestrated LLM pipeline"?
 
 ## Risk Watchlist
-- Mood synonym mismatch (example: upbeat vs happy) can change ranking significantly.
-- JSON shape drift across agents can break pipeline integration late.
-- Overexpanding `UserProfile` too early can cause churn in tests and parser logic.
+- Label quality bottleneck in CSV reduces recommendation quality regardless of architecture.
+- JSON contract drift can break downstream agents late in the cycle.
+- Over-expanding profile schema too early can create avoidable churn.
+- Demo reliability risk if external model calls are not bounded with robust fallbacks.
 
-## Nice-to-Have Ideas
-- Add weighted preferences (`genre_weights`, `mood_weights`) with backward compatibility.
-- Add output modes for CLI: `compact` and `verbose`.
-- Add snapshot tests for key CLI tables.
+## Nice-To-Have (Post-v1)
+- Persistent local user preference memory.
+- Compact/verbose CLI modes.
+- Snapshot tests for CLI traces.
+- Weighted preference vectors with backward compatibility.

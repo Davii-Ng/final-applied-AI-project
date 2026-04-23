@@ -1,6 +1,41 @@
 from src.agents.agent1_mood import ALLOWED_MOODS, MoodAnalyst, analyze_mood
 
 
+class _FakeMessage:
+    def __init__(self, content: str):
+        self.content = content
+
+
+class _FakeGeminiSuccess:
+    def __init__(self, model: str, google_api_key: str, temperature: float):
+        self.model = model
+        self.google_api_key = google_api_key
+        self.temperature = temperature
+
+    def invoke(self, _messages):
+        return type(
+            "Response",
+            (),
+            {
+                "content": (
+                    '{"detected_mood":"happy","confidence":0.91,'
+                    '"energy_hint":0.82,"mood_candidates":["happy","intense"],'
+                    '"notes":"gemini test"}'
+                )
+            },
+        )()
+
+
+class _FakeGeminiBadJson:
+    def __init__(self, model: str, google_api_key: str, temperature: float):
+        self.model = model
+        self.google_api_key = google_api_key
+        self.temperature = temperature
+
+    def invoke(self, _messages):
+        return type("Response", (), {"content": "not-json"})()
+
+
 def test_analyze_mood_returns_valid_schema_payload():
     payload = analyze_mood("I want upbeat happy songs for a party tonight")
 
@@ -66,3 +101,32 @@ def test_analyze_mood_low_energy_keywords_force_low_energy_hint():
 
     assert payload["detected_mood"] in {"relaxed", "chill"}
     assert payload["energy_hint"] == 0.30
+
+
+def test_analyze_mood_gemini_backend_returns_llm_payload_when_valid():
+    payload = analyze_mood(
+        user_message="Need upbeat workout tracks",
+        backend="gemini",
+        api_key="fake-key",
+        llm_class=_FakeGeminiSuccess,
+        message_class=_FakeMessage,
+    )
+
+    assert payload["detected_mood"] == "happy"
+    assert payload["confidence"] == 0.91
+    assert payload["energy_hint"] == 0.82
+    assert payload["mood_candidates"] == ["happy", "intense"]
+    assert payload["notes"] == "gemini test"
+
+
+def test_analyze_mood_gemini_backend_falls_back_to_local_when_invalid_json():
+    payload = analyze_mood(
+        user_message="just play something",
+        backend="gemini",
+        api_key="fake-key",
+        llm_class=_FakeGeminiBadJson,
+        message_class=_FakeMessage,
+    )
+
+    assert payload["detected_mood"] in ALLOWED_MOODS
+    assert "gemini fallback" in payload["notes"]
