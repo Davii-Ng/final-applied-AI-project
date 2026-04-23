@@ -1,3 +1,4 @@
+import os
 from typing import Any, Dict, List, Optional
 
 from src.agents.agent1_mood import analyze_mood
@@ -11,8 +12,10 @@ def run_pipeline(
     songs: List[Dict[str, Any]],
     k: int = 5,
     agent1_backend: str = "local",
-    agent1_model: str = "gemini-3-flash-preview",
+    agent1_model: str = "gemini-2.0-flash",
     agent1_api_key: Optional[str] = None,
+    agent4_backend: str = "gemini",
+    agent4_api_key: Optional[str] = None,
     optional_context: Optional[Dict[str, Any]] = None,
     persona: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -44,6 +47,8 @@ def run_pipeline(
         agent3_payload=agent3_payload,
         persona=persona,
         trace_id=trace_id,
+        backend=agent4_backend,
+        api_key=agent4_api_key or os.getenv("GOOGLE_API_KEY"),
     )
 
     return {

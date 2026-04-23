@@ -28,12 +28,12 @@ The repository is a Python package with a deterministic ranking core and a four-
 - Agent 1: src/agents/agent1_mood.py
 - Agent 2: src/agents/agent2_profile.py
 - Agent 3: src/agents/agent3_setlist.py
-- Agent 4: src/agents/agent4_narrator.py
+- Agent 4: src/agents/agent4_narrator.py (Gemini narration + template fallback)
 - Orchestrator: src/orchestrator.py
-- CLI entries: src/main.py (demo runner) and src/cli.py (interactive)
+- CLI entries: src/main.py (demo runner) and src/cli.py (interactive, clean output)
 - Test suites: tests/test_recommender.py, tests/test_agent1_mood.py, tests/test_agent2_profile.py, tests/test_agent3_setlist.py, tests/test_agent4_narrator.py, tests/test_orchestrator.py, tests/test_pipeline_smoke.py
 
-The system reads a local CSV dataset and does not require network calls for normal ranking or profile parsing. Optional smoke testing uses Gemini when configured.
+The system reads a local CSV dataset. Agent 1 and Agent 4 can use Gemini for semantic mood parsing and paragraph narration respectively; both fall back to rule-based logic when GOOGLE_API_KEY is absent.
 
 ## 3. Architecture Overview
 
@@ -242,6 +242,10 @@ Decision points:
   - avoid_genres filter applied before scoring
   - if retrieval returns no candidates, falls back to full catalog minus avoids
   - candidate pool size controlled by candidate_pool_size (default 20)
+- Agent 4 backend:
+  - gemini backend (default) calls Gemini to generate a short paragraph narration
+  - local backend uses a template paragraph composed from mood, genre, and track titles
+  - both paths return the result in the paragraph key; legacy intro/transitions/closing keys preserved
 - Agent 4 persona:
   - concise style truncates transitions to max 3 entries
   - friendly style (default) returns all transitions
@@ -253,7 +257,7 @@ Current state:
 - Agent 1 handles empty input and ambiguous text by returning balanced fallback.
 - Agent 2 handles invalid confidence, missing trace ids, unknown genre text, and invalid Agent 1 mood labels through rule-based fallback.
 - Agent 3 returns an error payload (invalid_profile_payload) when agent2_payload.profile is not a dict; retrieval falls back to full catalog minus avoids if scoring produces no candidates.
-- Agent 4 returns a canned fallback response when setlist is empty or not a list.
+- Agent 4 returns a canned fallback response when setlist is empty or not a list; paragraph key is always present even in fallback.
 - Connectivity helper returns structured error payload instead of raising when API key/dependencies/network are missing.
 
 Known fallback outcomes:
@@ -382,12 +386,14 @@ A change is done when all are true:
 ## 10. Known Limitations And Open Questions
 
 Known limitations:
-- Catalog is small and static.
-- Mood parser is keyword-based and English-centric.
-- Agent 1, 2, and narration are all rule-based; no LLM calls are made in default (local/auto) mode.
-- Agent 2 parser depends on explicit token patterns and will miss paraphrases.
+- Catalog is small (40 songs) and static; recommendations are constrained by available data.
+- Agent 1 local backend uses keyword and phrase matching; colloquial inputs not in MOOD_KEYWORDS or PHRASE_MOOD_MAP may fall back to balanced.
+- Agent 2 parser depends on explicit token patterns and will miss paraphrases not covered by its rules.
 - Retrieval stage (src/retrieval.py) is token-overlap based, not embedding-based.
+- Energy signal weight reduced to 3.5 (from 6.0) so mood leads; this may under-weight energy for purely energy-driven requests with no mood keywords.
+- Diversity penalty uses greedy selection (O(k×n)); acceptable for 40 songs but scales poorly for large catalogs.
 - No persistent session state; each run_pipeline call is stateless.
+- Agent 4 Gemini narration quality depends on API availability and model behavior; template fallback is deterministic but generic.
 
 Open questions:
 - Should Gemini connectivity smoke checks remain test-only or integrate into CLI startup?
@@ -418,12 +424,12 @@ Public interfaces and signatures:
   - curate_setlist(agent2_payload: dict, songs: list[dict], k: int = 5, candidate_pool_size: int = 20, trace_id: str | None = None) -> dict
   - class SetlistCurator.curate(...same args...) -> dict
 - src/agents/agent4_narrator.py
-  - narrate_setlist(agent3_payload: dict, persona: dict | None = None, trace_id: str | None = None) -> dict
+  - narrate_setlist(agent3_payload: dict, persona: dict | None = None, trace_id: str | None = None, backend: str = "local", api_key: str | None = None) -> dict
   - class DJNarrator.narrate(...same args...) -> dict
 - src/retrieval.py
   - retrieve_candidates(agent2_payload: dict, songs: list[dict], top_n: int) -> tuple[list[dict], dict]
 - src/orchestrator.py
-  - run_pipeline(user_message: str, songs: list[dict], k: int = 5, agent1_backend: str = "local", agent1_model: str = "gemini-3-flash-preview", agent1_api_key: str | None = None, optional_context: dict | None = None, persona: dict | None = None) -> dict
+  - run_pipeline(user_message: str, songs: list[dict], k: int = 5, agent1_backend: str = "local", agent1_model: str = "gemini-2.0-flash", agent1_api_key: str | None = None, agent4_backend: str = "gemini", agent4_api_key: str | None = None, optional_context: dict | None = None, persona: dict | None = None) -> dict
 - src/recommender.py
   - load_songs(csv_path: str) -> list[dict]
   - recommend_songs(user_prefs: dict, songs: list[dict], k: int = 5) -> list[tuple[dict, float, list[str]]]
@@ -456,3 +462,8 @@ Definition of done:
 - Updated orchestrator contract and CLI run instructions.
 - Updated control flow sequence diagram to show current end-to-end flow.
 - Updated acceptance criteria, testing, and known limitations to match current state.
+- Agent 1: added PHRASE_MOOD_MAP for colloquial phrase recognition (e.g. "hit the gym" → intense, "lock in" → focused); expanded MOOD_KEYWORDS with gym, grind, hustle, lock, and related terms; improved Gemini prompt with semantic examples.
+- Agent 4: added Gemini narration backend that generates a short paragraph; returns new paragraph key alongside legacy intro/transitions/closing; falls back to template when API key absent.
+- Orchestrator: added agent4_backend and agent4_api_key params; updated default model to gemini-2.0-flash.
+- Recommender: reduced energy signal weight from 6.0 to 3.5 so mood match leads ranking; fixed diversity penalty to use greedy pick-then-penalize selection instead of batch-then-resort.
+- CLI: redesigned to show only song count prompt at startup; removed debug output (trace_id, agent internals, retrieval stats); setlist Why column now shows highest-scoring reason; narration rendered as Gemini paragraph.

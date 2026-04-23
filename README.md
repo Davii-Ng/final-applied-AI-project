@@ -98,14 +98,17 @@ Note:
   - Runs retrieval stage first, then deterministic scoring
   - Returns schema version, trace id, setlist, explanations, profile echo, and retrieval debug
 - src/agents/agent4_narrator.py
-  - Converts ranked setlist into intro, transitions, and closing narration
-  - Supports persona dict with a style field (friendly or concise)
+  - Converts ranked setlist into a short DJ paragraph using Gemini
+  - Falls back to a template paragraph when no API key is present
+  - Supports local and gemini backends; returns a paragraph key used by the CLI
 - src/orchestrator.py
   - Runs Agent 1 -> Agent 2 -> Agent 3 -> Agent 4 with shared trace_id
-  - Exposes run_pipeline with configurable backend and persona
+  - Exposes run_pipeline with configurable agent1_backend, agent4_backend, and persona
 - src/cli.py
   - Interactive runtime for the rebuilt pipeline
-  - Prompts for k, backend, and output mode before the loop
+  - Prompts only for song count before the loop
+  - Uses gemini backend by default with automatic local fallback
+  - Displays mood summary, clean setlist table, and Gemini-generated paragraph narration
 
 ## Agent 1 Contract
 
@@ -206,6 +209,8 @@ Input:
 - agent3_payload: dict
 - persona: dict or None
 - trace_id: str or None
+- backend: str (local or gemini, default gemini)
+- api_key: str or None
 
 Output JSON fields:
 - schema_version: str
@@ -213,13 +218,15 @@ Output JSON fields:
 - intro: str
 - track_transitions: list[str]
 - closing: str
+- paragraph: str (Gemini-generated or template fallback — used by CLI)
 - safety_notes: list[str]
 
 ## Recommender Behavior Summary
 
 - Strong boosts for exact mood and genre matches
 - Gaussian similarity for energy, tempo, valence, danceability, acousticness, popularity, decade, instrumentalness, vocal presence, and brightness
-- Diversity penalties applied after initial ranking:
+- Signal weights: mood match +5.0, energy similarity up to +3.5 (dominant signal reduced to let mood lead)
+- Diversity penalties applied via greedy selection — each pick is evaluated against songs already chosen:
   - repeated artist: -2.0
   - repeated genre: -1.0
 
