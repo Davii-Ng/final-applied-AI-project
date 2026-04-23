@@ -19,6 +19,7 @@ if __package__ in {None, ""}:
 
 from src.recommender import load_songs, recommend_songs
 from src.agents.agent1_mood import analyze_mood
+from src.agents.agent2_profile import parse_profile
 from textwrap import wrap
 
 
@@ -51,6 +52,23 @@ def _print_agent_payload(payload: dict) -> None:
     print(f"  mood_candidates: {candidates_text}")
     print(f"  fallback_used: {'yes' if fallback_used else 'no'}")
     print(f"  notes: {payload.get('notes', 'missing')}")
+
+
+def _print_agent2_payload(payload: dict) -> None:
+    profile = payload.get("profile", {}) if isinstance(payload.get("profile"), dict) else {}
+    constraints = payload.get("constraints", {}) if isinstance(payload.get("constraints"), dict) else {}
+
+    print("agent2 payload summary:")
+    print(f"  trace_id: {payload.get('trace_id', 'missing')}")
+    print(f"  favorite_genre: {profile.get('favorite_genre', 'missing')}")
+    print(f"  favorite_mood: {profile.get('favorite_mood', 'missing')}")
+    print(f"  target_energy: {profile.get('target_energy', 'missing')}")
+    print(f"  likes_acoustic: {profile.get('likes_acoustic', 'missing')}")
+    print(f"  avoid_genres: {profile.get('avoid_genres', [])}")
+    print(f"  missing_fields: {constraints.get('missing_fields', [])}")
+    print(f"  inferred_fields: {constraints.get('inferred_fields', [])}")
+    print(f"  low_confidence_mood: {constraints.get('low_confidence_mood', 'missing')}")
+    print(f"  request_summary: {payload.get('request_summary', 'missing')}")
 
 
 def _print_recommendation_table(profile_name: str, user_prefs: dict, recommendations) -> None:
@@ -91,19 +109,22 @@ def _print_recommendation_table(profile_name: str, user_prefs: dict, recommendat
     print()
 
 
-def _prefs_from_agent_message(message: str, default_genre: str = "pop") -> tuple[dict, dict]:
-    payload = analyze_mood(message)
-    mood = payload["detected_mood"]
-    energy = payload["energy_hint"] if payload["energy_hint"] is not None else 0.55
-    likes_acoustic = mood in {"chill", "relaxed", "sad", "focused", "nostalgic", "moody"}
+def _prefs_from_agent_message(message: str) -> tuple[dict, dict, dict]:
+    mood_payload = analyze_mood(message)
+    profile_payload = parse_profile(
+        user_message=message,
+        agent1_payload=mood_payload,
+        trace_id=mood_payload.get("trace_id"),
+    )
 
+    profile = profile_payload.get("profile", {})
     user_prefs = {
-        "genre": default_genre,
-        "mood": mood,
-        "energy": energy,
-        "likes_acoustic": likes_acoustic,
+        "genre": profile.get("favorite_genre", "pop"),
+        "mood": profile.get("favorite_mood", "balanced"),
+        "energy": profile.get("target_energy", 0.55),
+        "likes_acoustic": bool(profile.get("likes_acoustic", False)),
     }
-    return user_prefs, payload
+    return user_prefs, mood_payload, profile_payload
 
 
 def main() -> None:
@@ -154,10 +175,11 @@ def main() -> None:
         "Give me calm lofi study music",
     ]
     for message in agent_messages:
-        user_prefs, mood_payload = _prefs_from_agent_message(message)
+        user_prefs, mood_payload, profile_payload = _prefs_from_agent_message(message)
         recommendations = recommend_songs(user_prefs, songs, k=3)
         print(f"message: {message}")
         _print_agent_payload(mood_payload)
+        _print_agent2_payload(profile_payload)
         _print_recommendation_table("Agent-derived profile", user_prefs, recommendations)
 
 
