@@ -208,8 +208,6 @@ tests/
 eval_harness.py       — 12-case evaluation script with mood/genre/confidence metrics
 docs/
   implementation_guide.md
-  idea.md
-  reflection.md
   model_card.md
 ```
 
@@ -218,9 +216,7 @@ docs/
 Find developer-facing docs in the `docs/` folder:
 
 - Implementation guide: [docs/implementation_guide.md](docs/implementation_guide.md)
-- Project brief / idea: [docs/idea.md](docs/idea.md)
-- Reflection notes: [docs/reflection.md](docs/reflection.md)
-- Model card: [docs/model_card.md](docs/model_card.md)
+- Model card (includes reflection + ethics): [docs/model_card.md](docs/model_card.md)
 
 
 ## Agent Contracts

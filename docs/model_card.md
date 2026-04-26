@@ -1,59 +1,62 @@
-# 🎧 Model Card: Music Recommender Simulation
+# Reflection
 
-## 1. Model Name
+## 1. Reliability and Evaluation: How I Tested and Improved the AI
 
-VibeFinder 1.0.
+I treated reliability as "can this system give consistent, explainable recommendations across different user inputs," not just "does it run once." I used four kinds of checks in this project:
 
----
+### A. Automated tests
+- I used unit tests for key modules (`recommender`, `retrieval`, `agent1_mood`, `agent2_profile`, `agent3_setlist`, `agent4_narrator`, `orchestrator`).
+- I also used smoke tests for pipeline and connectivity behavior.
+- Result summary from the project documentation: baseline test/eval expectations were fully met in normal runs (including the 12-case evaluation harness).
 
-## 2. Intended Use
+### B. Confidence scoring
+- Agent 1 returns a confidence score for mood detection.
+- Agent 3 retrieval returns `retrieval_confidence` and uses a retry loop when confidence is low.
+- In fallback token-overlap mode, average confidence was around `0.31` in evaluation; this helped me understand where retrieval is weaker and when retry/fallback behavior matters.
 
-This model suggests songs from a small classroom dataset. It uses genre, mood, and energy to guess what a user may like. It is for class practice, not for real users.
+### C. Logging and error handling
+- The orchestrator prints per-agent progress and exposes step-by-step reasoning in agentic mode.
+- Agent 3 and Agent 4 include fallback paths when Gemini is unavailable.
+- Error cases are handled explicitly (for example: invalid profile payload, empty setlist, or missing API key), which prevents silent failures.
 
----
+### D. Human evaluation
+- I manually reviewed outputs for whether songs actually matched vibe intent (not just score values).
+- I compared conflict-style prompts (mixed signals) versus clear prompts to see if the recommender behaved logically.
+- This manual check was important because a numeric score can still produce a playlist that feels wrong to a real listener.
 
-## 3. How the Model Works
+### Short reliability summary (rubric style)
+- Automated testing and eval checks passed in baseline runs, including 12/12 evaluation cases in the documented setup.
+- Confidence was strongest with clear mood/genre signals and weaker in token-overlap fallback mode (avg retrieval confidence ~0.31).
+- Reliability improved after adding/using confidence thresholds, retry logic, and explicit fallbacks.
 
-The model looks at genre, mood, energy, tempo, valence, danceability, and acousticness. It also looks at the user's favorite genre, favorite mood, target energy, and whether they like acoustic songs. It gives points for matches and for songs that are close on numeric features. I changed the starter logic so energy matters more and genre matters less.
+## 2. Behavioral Findings From Profile Comparisons
 
----
+### Conflict profile vs. unknown mood profile
+The conflict profile (very high energy + sad mood) often surfaced tracks like Gym Hero and Sunrise City because the scorer strongly rewards energy and mood matching. The unknown mood profile shifted toward lofi songs (for example Midnight Coding, Focus Flow, Library Rain) because the system used fallback behavior when mood was unclear. In simple terms, the first prompt sends mixed signals, while the second behaves like a broad calm-listening request.
 
-## 4. Data
+### Conflict profile vs. out-of-range energy profile
+The out-of-range energy profile moved brighter songs up because an unrealistic energy target weakens that feature's usefulness, so mood/genre signals dominate more. The conflict profile still ranked Gym Hero highly, but also allowed tracks like Storm Runner to rise due to tension between high-energy preference and sad mood. This shows how weight balance can unintentionally favor a few repeat songs.
 
-The catalog has 10 songs. It includes pop, lofi, rock, ambient, jazz, synthwave, and indie pop. It also includes moods like happy, chill, intense, relaxed, moody, and focused. The dataset is small, so some tastes are missing or underrepresented.
+### Unknown mood profile vs. out-of-range energy profile
+The unknown mood profile stayed in chill/lofi territory because "bittersweet" was not recognized and fallback mood behavior kicked in. The out-of-range energy profile leaned toward happy pop patterns even with a broken energy value because genre/mood bonuses still contributed strongly. So one case looked "calm but undefined," while the other looked "happy pop with invalid energy input."
 
----
+## 3. Reflection and Ethics
 
-## 5. Strengths
+### What are the limitations or biases in this system?
+- The catalog is small, so recommendations can become repetitive.
+- The scoring design can over-reward strong mood/energy matches and under-serve mixed or niche tastes.
+- Unknown mood words (for example, "bittersweet") are mapped to fallback behavior, which can flatten emotional nuance.
 
-The system works well for users who want a clear vibe. It does a good job when mood and energy are easy to describe. It also gives reasonable results for happy pop, chill lofi, and high-energy workout music.
+### Could this AI be misused, and how would I prevent that?
+- Misuse risk: presenting recommendations as if they were objective truth about a user's emotional state.
+- Misuse risk: over-trusting results in sensitive contexts (mental health, crisis, etc.) where this tool is not appropriate.
+- Mitigation: keep clear scope messaging in docs/CLI (entertainment/demo use), expose confidence and reasoning, and use conservative fallback behavior instead of pretending certainty.
 
----
+### What surprised me while testing reliability?
+What surprised me most was how much output ranking changed from small shifts in scoring weights or confidence handling. Even when the code looked stable, tiny tuning changes could reorder the top songs a lot. That made me value regression tests and repeatable eval cases more than I expected.
 
-## 6. Limitations and Bias
+### Collaboration with AI during this project
+- Helpful AI suggestion: AI helped me structure the multi-agent pipeline into separable responsibilities (mood detection, profile parsing, retrieval/ranking, narration), which made testing and debugging much easier.
+- Flawed AI suggestion: AI once suggested wording/logic that sounded plausible but did not match actual project behavior (for example, overconfident assumptions about output quality in edge cases). I had to verify against tests and real runs, then correct the documentation/logic.
 
-The system over-prioritizes exact mood and energy matches. That can make it feel narrow. In my tests, a user who wanted high energy but a sad mood still got pushed toward the same strong energy songs. The small catalog makes this worse because the same few songs keep rising to the top. Users with unusual or mixed tastes may get less useful results.
-
----
-
-## 7. Evaluation
-
-I tested a high-energy sad user, a user with an unknown mood, and a user with out-of-range energy. I also compared how the rankings changed after the weight shift. The biggest surprise was how fast the top songs changed when energy got more weight. Genre mattered less than I expected.
-
----
-
-## 8. Future Work
-
-I would add more songs and more mood options. I would also add diversity so the top results are not too similar. It would help to support multiple moods or a wider energy range. Better explanations would also make the system easier to trust.
-
----
-
-## 9. Personal Reflection
-
-My biggest learning moment was seeing how much the ranking changed from a small weight shift. I learned that even simple scoring rules can produce very different results.
-
-AI tools helped me write and test faster. They were useful for drafting ideas, finding edge cases, and checking the code structure. I still had to double-check the results when the logic depended on exact weights or when the output needed to match the dataset.
-
-I was surprised that a simple algorithm could still feel like a real recommendation system. It did not understand music the way a person does, but the top songs still matched the user's vibe in a believable way.
-
-If I extended this project, I would add more songs, more user preferences, and more diversity in the top results. I would also test how the system behaves when users want mixed moods instead of one clear style.
+Main takeaway: AI accelerated drafting and iteration, but reliability came from verification, not from accepting AI-generated output at face value.
