@@ -63,27 +63,43 @@ Key dependencies:
 
 ```mermaid
 flowchart LR
-  U[User Input] --> O[orchestrator.py]
-  O --> A1[agent1_mood.py\nsentence-transformers]
-  A1 --> A2[agent2_profile.py\nrule-based]
-  A2 --> A3[agent3.py\nagentic state machine]
-  A3 --> RET[retrieval.py\nGemini semantic / token-overlap]
-  A3 --> KB[knowledge.py\nRAG context]
-  RET --> RANK[recommender.py\ncosine similarity]
-  RANK --> A4[agent4_narrator.py\nGemini / template]
-  D[data/songs.csv] --> RANK
-  KB --> RET
-  A4 --> C[CLI output]
+  User[Person types a vibe in CLI]
+  Orch[Orchestrator<br/>runs the full pipeline]
+
+  A1[Agent 1<br/>Detect mood]
+  A2[Agent 2<br/>Build listener profile]
+  A3[Agent 3<br/>Find and rank songs]
+  A4[Agent 4<br/>Write DJ narration]
+
+  Songs[(songs.csv)]
+  KB[(knowledge_base.json)]
+
+  Output[CLI shows:<br/>setlist + explanations + narration]
+  HumanReview[Human checks:<br/>"Does this match the vibe?"]
+  Tests[Test suite + eval_harness<br/>verify quality and regressions]
+
+  User --> Orch --> A1 --> A2 --> A3 --> A4 --> Output --> HumanReview
+  Songs --> A3
+  KB --> A3
+  Tests --> Orch
+  Tests --> A3
 ```
 
 ### Agent 3 State Machine (agentic mode)
 
-```
-plan -> retrieve -> check_confidence -> rank -> finalize -> done
-                         |
-                    [confidence < 0.5 and retries remain]
-                         |
-                       retry (clears avoid_genres, doubles pool) -> retrieve
+```mermaid
+flowchart TD
+  Start[Start with profile from Agent 2]
+  Retrieve[Retrieve candidate songs]
+  Check[Is retrieval confidence good enough?]
+  Retry[Retry retrieval with broader search]
+  Rank[Rank candidates]
+  Finalize[Build final setlist + reasons]
+  Done[Return setlist to orchestrator]
+
+  Start --> Retrieve --> Check
+  Check -->|Yes| Rank --> Finalize --> Done
+  Check -->|No, retries left| Retry --> Retrieve
 ```
 
 Each state logs a step with `step_name`, `decision`, and `data` dict. All steps are returned in `agentic_steps` and displayed in the CLI.
@@ -273,37 +289,22 @@ Expected baseline: 12/12 pass, 100% mood/genre accuracy, avg confidence ~0.31 (t
 ## 10. Control Flow (Sequence)
 
 ```mermaid
-sequenceDiagram
-  participant User
-  participant CLI
-  participant Orch as orchestrator.py
-  participant A1 as agent1 (sentence-transformers)
-  participant A2 as agent2 (rules)
-  participant A3 as agent3 (state machine)
-  participant Ret as retrieval.py
-  participant KB as knowledge.py
-  participant Rank as recommender.py
-  participant A4 as agent4 (Gemini)
+flowchart TD
+  In[Input:<br/>User describes a vibe]
+  P1[Process 1:<br/>Agent 1 detects mood]
+  P2[Process 2:<br/>Agent 2 builds profile]
+  P3[Process 3:<br/>Agent 3 retrieves and ranks songs<br/>using songs.csv + knowledge base]
+  P4[Process 4:<br/>Agent 4 writes narration]
+  Out[Output:<br/>CLI prints setlist + explanation]
 
-  User->>CLI: vibe text
-  CLI->>Orch: run_pipeline(message, songs, k, verbose=True)
-  Orch->>A1: analyze_mood(message, backend="sentence_transformers")
-  A1-->>Orch: mood payload (~13ms)
-  Orch->>A2: parse_profile(message, agent1_payload)
-  A2-->>Orch: profile + constraints
-  Orch->>A3: curate_setlist(agent2_payload, songs, agentic=True)
-  A3->>KB: retrieve_kb_context(genre, mood)
-  KB-->>A3: relevant docs
-  A3->>Ret: retrieve_candidates(payload, songs, kb_docs)
-  Ret-->>A3: candidates + confidence
-  Note over A3: check confidence; retry if < 0.5
-  A3->>Rank: recommend_songs(user_prefs, candidates, k)
-  Rank-->>A3: ranked list with scores
-  A3-->>Orch: setlist + agentic_steps
-  Orch->>A4: narrate_setlist(agent3_payload, backend="gemini")
-  A4-->>Orch: paragraph
-  Orch-->>CLI: full result dict
-  CLI-->>User: progress log + reasoning steps + setlist table + narration
+  Human[Human-in-the-loop:<br/>user judges recommendation quality]
+  Eval[Testing-in-the-loop:<br/>pytest + eval_harness]
+
+  In --> P1 --> P2 --> P3 --> P4 --> Out --> Human
+  Eval --> P1
+  Eval --> P2
+  Eval --> P3
+  Eval --> P4
 ```
 
 ---
