@@ -2,6 +2,14 @@
 
 A terminal-first multi-agent music recommender built for CodePath AI110. Given a free-text "vibe" description, a 4-agent pipeline detects mood, builds a listener profile, curates a ranked setlist, and writes a DJ narration paragraph.
 
+This project matters because it turns a subjective request ("match my vibe") into a transparent, testable AI workflow that shows exactly how each step contributes to the final recommendation.
+
+## Original Project (Modules 1-3)
+
+**Original project name:** Music Recommender Simulation (CodePath AI110 Modules 1-3).
+
+In the original version, the system used a small hand-curated song dataset and deterministic scoring to recommend tracks based on mood, genre, and energy. Its core capability was to rank songs from structured features and generate explainable picks, which this project extends into a multi-agent pipeline with retrieval grounding and narration.
+
 ## Architecture
 
 ```
@@ -19,6 +27,10 @@ User vibe input
       |
   CLI output
 ```
+
+### Architecture Overview (In Plain English)
+
+The system takes a user vibe from the CLI, then passes it through specialized agents that each do one job: detect mood, build a profile, retrieve and rank songs, and narrate the result. The retriever grounds decisions in `songs.csv` and `knowledge_base.json`, and the final output returns both recommendations and reasoning. Testing (`pytest`, `eval_harness.py`) and human review are used to verify that outputs are correct and useful.
 
 ### What makes it agentic
 
@@ -133,6 +145,37 @@ Describe your vibe: dark brooding night drive music
   Sink into this moody synthwave ride with Midnight Protocol...
 ```
 
+## Sample Interactions
+
+These examples show different user intents and the corresponding AI behavior.
+
+### Example 1: High-energy workout
+
+**Input:** `Need hype songs for a workout run tonight`
+
+**Result (typical):**
+- Mood detected as `intense` or `happy` with medium-high confidence
+- Profile leans toward high energy and danceable songs
+- Output setlist prioritizes energetic tracks with fast tempo and strong beat
+
+### Example 2: Quiet study session
+
+**Input:** `Give me calm lofi study music`
+
+**Result (typical):**
+- Mood detected as `focused` or `chill`
+- Profile favors lower-to-mid energy, often acoustic/instrumental-friendly
+- Output setlist emphasizes lofi/chill songs with smoother audio features
+
+### Example 3: Moody night drive
+
+**Input:** `dark brooding night drive music`
+
+**Result (typical):**
+- Mood detected as `moody`
+- Retriever pulls candidates aligned with darker mood tags
+- Narrator returns a short DJ-style paragraph matching the tone
+
 ## Project Structure
 
 ```
@@ -165,6 +208,9 @@ tests/
 eval_harness.py       — 12-case evaluation script with mood/genre/confidence metrics
 docs/
   implementation_guide.md
+  idea.md
+  reflection.md
+  model_card.md
 ```
 
 ## Documentation
@@ -274,6 +320,45 @@ Run `python eval_harness.py --agentic` to evaluate 12 test cases covering all 9 
 Metrics reported per case: mood match, genre match, retrieval confidence, avoid-genre violations.
 
 Aggregate summary shows pass rate, mood/genre accuracy, and average confidence.
+
+## Design Decisions And Trade-offs
+
+1. **Multi-agent pipeline instead of one LLM call**
+- Why: Improves observability and makes each step easier to debug.
+- Trade-off: More orchestration complexity and more moving parts.
+
+2. **Deterministic ranking (cosine + bonuses/penalties)**
+- Why: Predictable behavior and easier unit testing.
+- Trade-off: Less flexible than end-to-end generative ranking.
+
+3. **Gemini retrieval with local fallback**
+- Why: Works with and without API keys, so demo reliability is higher.
+- Trade-off: Fallback retrieval has lower semantic quality than Gemini.
+
+4. **Small curated dataset**
+- Why: Fast iteration and explainable outcomes for class/demo context.
+- Trade-off: Limited diversity and coverage for unusual preferences.
+
+## Testing Summary
+
+What worked:
+- Unit tests for agents, retrieval, recommender, and orchestrator validate core logic.
+- Pipeline and connectivity smoke tests confirm end-to-end execution paths.
+- Evaluation harness provides repeatable checks for mood/genre matching and avoid-genre constraints.
+
+What did not work as well:
+- Retrieval confidence is lower in fallback token-overlap mode than in Gemini semantic mode.
+- Small catalog size can produce repetitive top tracks for certain profiles.
+
+What I learned:
+- Separating retrieval and ranking makes failures easier to isolate.
+- Confidence thresholds and retry logic are critical for stable agentic behavior.
+
+## Reflection
+
+This project reinforced that good AI systems are not just about model output quality; they are about structure, guardrails, and transparency. Breaking the workflow into agents made debugging and iteration faster, and it made system behavior easier to explain to non-technical stakeholders.
+
+It also showed the importance of practical fallbacks: when external model calls fail or are unavailable, deterministic local logic keeps the system functional. The main next step is improving dataset breadth and retrieval quality so recommendations stay diverse while remaining explainable.
 
 ## Dependencies
 
