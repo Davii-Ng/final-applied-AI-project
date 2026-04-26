@@ -64,61 +64,60 @@ Key dependencies:
 ```mermaid
 flowchart TD
   subgraph H[Human]
-    U[User enters a vibe]
-    R[User reviews results]
+    U([User enters a vibe])
+    R([User reviews results])
   end
 
-  subgraph SYS[AI System]
-    CLI[CLI receives input]
-    ORCH[Orchestrator runs pipeline]
-    M[Agent 1: Mood Detector]
-    P[Agent 2: Profile Builder]
-    RET[Retriever: find candidate songs]
-    RANK[Ranker: score and order songs]
-    NAR[Agent 4: Narrator writes summary]
-    OUT[CLI shows setlist and explanation]
+  subgraph SYS[AI System — orchestrator.py]
+    CLI[CLI]
+    A1[Agent 1\nMood Detector\nsentence-transformers hybrid]
+    A2[Agent 2\nProfile Builder\nrule-based]
+    A3[Agent 3\nSetlist Curator\nagentic state machine]
+    A4[Agent 4\nDJ Narrator\nGemini / template]
+    OUT[CLI Output\nsetlist + reasoning + narration]
   end
 
   subgraph D[Data Sources]
-    SONGS[(songs.csv)]
-    KB[(knowledge_base.json)]
+    SONGS[(songs.csv\n40 tracks)]
+    KB[(knowledge_base.json\n18 KB docs)]
   end
 
   subgraph Q[Quality Checks]
-    TESTS[pytest test suite]
-    EVAL[eval_harness.py]
+    TESTS[pytest\n53 tests]
+    EVAL[eval_harness.py\n12 cases]
   end
 
-  U --> CLI --> ORCH --> M --> P --> RET --> RANK --> NAR --> OUT --> R
-  SONGS --> RET
-  KB --> RET
-  TESTS --> ORCH
-  EVAL --> ORCH
+  U --> CLI --> A1 --> A2 --> A3 --> A4 --> OUT --> R
+  SONGS --> A3
+  KB --> A3
+  TESTS -.->|validates| SYS
+  EVAL -.->|evaluates| SYS
 ```
 
 Reading guide:
-- Main path: user input -> AI processing -> recommendation output
-- Grounding data: `songs.csv` and `knowledge_base.json` feed retrieval
-- Validation path: `pytest` and `eval_harness.py` check system behavior
+- **Solid arrows** = runtime data flow
+- **Dashed arrows** = validation / evaluation paths
+- Agent 3 is the only agent that reads from the data sources directly
 
 ### Agent 3 State Machine (agentic mode)
 
 ```mermaid
 flowchart TD
-  Start[Start with profile from Agent 2]
-  Retrieve[Retrieve candidate songs]
-  Check[Is retrieval confidence good enough?]
-  Retry[Retry retrieval with broader search]
-  Rank[Rank candidates]
-  Finalize[Build final setlist + reasons]
-  Done[Return setlist to orchestrator]
+  Start([Profile from Agent 2])
+  Plan[plan\nlog catalog size + retry budget]
+  Retrieve[retrieve\ntool_call: retrieve_candidates]
+  Check{check_confidence\nconf ≥ 0.5?}
+  Retry[retry\nclear avoid_genres\ndouble candidate pool]
+  Rank[rank\ntool_call: recommend_songs\ncosine similarity × 7 features]
+  Finalize[finalize\nassemble setlist + explanations]
+  Done([Return to orchestrator])
 
-  Start --> Retrieve --> Check
-  Check -->|Yes| Rank --> Finalize --> Done
-  Check -->|No, retries left| Retry --> Retrieve
+  Start --> Plan --> Retrieve --> Check
+  Check -->|Yes, or retries exhausted| Rank --> Finalize --> Done
+  Check -->|No — retries remaining| Retry --> Retrieve
 ```
 
-Each state logs a step with `step_name`, `decision`, and `data` dict. All steps are returned in `agentic_steps` and displayed in the CLI.
+Each state emits a step dict `{step_name, decision, data}`. All steps accumulate in `agentic_steps` and are printed in the CLI under **Reasoning Steps**.
 
 ---
 
@@ -222,18 +221,33 @@ Function: `narrate_setlist(agent3_payload, persona=None, trace_id=None, backend=
 
 `retrieve_candidates(agent2_payload, songs, top_n, user_message=None, api_key=None, kb_docs=None)`
 
-**Gemini path** (when `api_key` is set):
-1. Pre-filter by token overlap — keep top 20 most relevant songs (reduces prompt by ~50%)
-2. Load KB context: `retrieve_kb_context(docs, genre, mood)` → `format_kb_context(docs)` → injected string
-3. Send filtered catalog + KB context + user message to Gemini
-4. Parse `{"ids": [...], "confidence": 0.85}` response
-5. Return ordered songs + confidence
+```mermaid
+flowchart TD
+  Entry([retrieve_candidates called])
+  HasKey{api_key set?}
 
-**Token-overlap fallback** (no API key, or when Gemini call fails):
-- Score each song by token overlap with profile query text
-- Genre/mood/tag boosts applied
-- Confidence = top_score / max_possible (normalized proxy)
-- If Gemini was attempted but failed, `gemini_error` is included in the debug dict and printed as a `[warn]` line in the CLI
+  subgraph G[Gemini path]
+    PreFilter[Pre-filter: token-overlap top 20\nreduces prompt tokens ~50%]
+    KB[Inject KB context\nretrieve_kb_context genre + mood]
+    GeminiCall[Gemini: rank songs\nreturn ids + confidence]
+    ParseOK{Parse\nsucceeded?}
+  end
+
+  subgraph T[Token-overlap fallback]
+    Score[Score songs: token overlap\n+ genre / mood / tag boosts]
+    Conf[confidence = top_score / max_possible]
+    ErrLog[log gemini_error in debug dict\nprint warn in CLI]
+  end
+
+  Result([Return: candidates list + debug dict])
+
+  Entry --> HasKey
+  HasKey -->|Yes| PreFilter --> KB --> GeminiCall --> ParseOK
+  HasKey -->|No| Score
+  ParseOK -->|Yes| Result
+  ParseOK -->|No| ErrLog --> Score --> Conf --> Result
+  Score --> Conf --> Result
+```
 
 ---
 
@@ -305,25 +319,39 @@ Expected baseline: 12/12 pass, 100% mood/genre accuracy, avg confidence ~0.31 (t
 
 ---
 
-## 10. Control Flow (Sequence)
+## 10. Data Flow Between Agents
+
+This sequence shows what each agent receives, what it produces, and how the payload evolves across the pipeline.
 
 ```mermaid
-flowchart TD
-  In[Input:<br/>User describes a vibe]
-  P1[Process 1:<br/>Agent 1 detects mood]
-  P2[Process 2:<br/>Agent 2 builds profile]
-  P3[Process 3:<br/>Agent 3 retrieves and ranks songs<br/>using songs.csv + knowledge base]
-  P4[Process 4:<br/>Agent 4 writes narration]
-  Out[Output:<br/>CLI prints setlist + explanation]
+sequenceDiagram
+  actor User
+  participant CLI
+  participant A1 as Agent 1<br/>Mood Detector
+  participant A2 as Agent 2<br/>Profile Builder
+  participant A3 as Agent 3<br/>Setlist Curator
+  participant RET as Retrieval<br/>(Gemini / token-overlap)
+  participant A4 as Agent 4<br/>Narrator
 
-  Human[Human-in-the-loop:<br/>user judges recommendation quality]
-  Eval[Testing-in-the-loop:<br/>pytest + eval_harness]
+  User->>CLI: "time to hit the gym"
+  CLI->>A1: user_message, backend="sentence_transformers"
+  A1-->>CLI: {detected_mood, confidence, energy_hint, mood_candidates}
 
-  In --> P1 --> P2 --> P3 --> P4 --> Out --> Human
-  Eval --> P1
-  Eval --> P2
-  Eval --> P3
-  Eval --> P4
+  CLI->>A2: user_message + agent1_payload
+  A2-->>CLI: {profile: {favorite_genre, favorite_mood, target_energy, avoid_genres}}
+
+  CLI->>A3: agent2_payload + songs + kb_docs
+  A3->>RET: profile + user_message + api_key
+  RET-->>A3: (candidates, {retriever, retrieval_confidence, ...})
+  Note over A3: check_confidence → retry if conf < 0.5
+  A3->>RET: broadened payload (if retry triggered)
+  RET-->>A3: (more candidates, confidence)
+  A3-->>CLI: {setlist, explanations, agentic_steps, retrieval}
+
+  CLI->>A4: agent3_payload + profile
+  A4-->>CLI: {paragraph, track_transitions}
+
+  CLI-->>User: mood · energy · reasoning trace · setlist · narration
 ```
 
 ---
