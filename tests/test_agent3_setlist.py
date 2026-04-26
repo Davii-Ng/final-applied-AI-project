@@ -67,7 +67,7 @@ def test_curate_setlist_returns_contract_payload():
     assert len(payload["setlist"]) == 2
     assert isinstance(payload["explanations"], list)
     assert payload["profile_echo"]["favorite_genre"] == "pop"
-    assert payload["retrieval"]["retriever"] == "rag-lite"
+    assert payload["retrieval"]["retriever"] in {"token-overlap", "gemini-semantic"}
     assert payload["retrieval"]["candidates_after"] >= 2
 
 

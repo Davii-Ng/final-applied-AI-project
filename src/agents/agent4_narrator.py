@@ -11,7 +11,7 @@ def _gemini_paragraph(
     energy: float,
     setlist: List[Dict[str, Any]],
     api_key: str,
-    model: str = "gemini-2.0-flash",
+    model: str = "gemini-3-flash-preview",
 ) -> str:
     from langchain_google_genai import ChatGoogleGenerativeAI
     from langchain_core.messages import HumanMessage

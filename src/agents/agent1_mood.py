@@ -303,22 +303,30 @@ def _extract_json_content(raw_content: str) -> Optional[Dict[str, Any]]:
 def _gemini_prompt(user_message: str, optional_context: Optional[Dict[str, Any]]) -> str:
     context = optional_context or {}
     return (
-        "You are Agent 1, a mood parser for a music recommender. "
-        "Your job is to infer the user's emotional state and energy level from casual, everyday language. "
+        "You are Agent 1, a mood and audio-profile parser for a music recommender. "
+        "Your job is to infer the user's full music preference profile from casual, everyday language. "
         "Interpret colloquial and slang phrases semantically — for example: "
-        "'hitting the gym' or 'beast mode' → intense; "
-        "'gotta lock in' or 'need to focus' → focused; "
-        "'in my feels' or 'going through it' → moody; "
-        "'good vibes only' or 'feeling myself' → happy; "
-        "'wind down' or 'take it easy' → relaxed. "
-        "Return strict JSON only (no markdown) with keys: "
-        "detected_mood, confidence, energy_hint, mood_candidates, notes. "
-        "Rules: detected_mood must be one of "
-        "[happy,chill,relaxed,moody,sad,intense,focused,nostalgic,balanced]. "
-        "confidence must be a float between 0 and 1. energy_hint must be null or a float between 0 and 1 "
-        "(0.0=very calm, 1.0=maximum energy). "
-        "mood_candidates must be up to 3 moods from the allowed set. "
-        "notes should briefly explain your reasoning in plain English. "
+        "'hitting the gym' or 'beast mode' → intense, high energy, high danceability, fast tempo; "
+        "'gotta lock in' or 'need to focus' → focused, low-medium energy, high instrumentalness; "
+        "'in my feels' or 'going through it' → moody, low energy, low valence; "
+        "'good vibes only' or 'feeling myself' → happy, medium-high energy, high valence; "
+        "'wind down' or 'take it easy' → relaxed, low energy, high acousticness. "
+        "Return strict JSON only (no markdown) with ALL of the following keys:\n"
+        "  detected_mood: one of [happy,chill,relaxed,moody,sad,intense,focused,nostalgic,balanced]\n"
+        "  confidence: float [0,1]\n"
+        "  energy_hint: float [0,1] (0=very calm, 1=maximum energy)\n"
+        "  mood_candidates: list of up to 3 moods from the allowed set\n"
+        "  notes: brief plain-English reasoning\n"
+        "  target_energy: float [0,1]\n"
+        "  target_valence: float [0,1] (0=dark/negative, 1=bright/positive)\n"
+        "  target_danceability: float [0,1]\n"
+        "  target_tempo_bpm: float (beats per minute, typical range 60-180)\n"
+        "  target_acousticness: float [0,1] (0=electronic/produced, 1=acoustic/raw)\n"
+        "  target_instrumentalness: float [0,1] (0=vocal-heavy, 1=fully instrumental)\n"
+        "  target_brightness: float [0,1] (0=dark/muffled, 1=bright/crisp)\n"
+        "  favorite_genre: one of [pop,rock,indie,indie pop,hip-hop,r&b,edm,lofi,jazz,classical,country,metal,ambient,synthpop] or null\n"
+        "  likes_acoustic: bool\n"
+        "  avoid_genres: list of genre strings the user wants excluded (empty list if none)\n"
         f"User message: {user_message!r}. "
         f"Optional context: {context!r}."
     )
@@ -404,6 +412,27 @@ def _gemini_analyze_mood(
 
     notes = str(payload.get("notes", "gemini mood parse")).strip() or "gemini mood parse"
 
+    def _safe_clamp(key: str, default: Optional[float]) -> Optional[float]:
+        val = payload.get(key)
+        if val is None:
+            return default
+        try:
+            return _clamp_01(float(val))
+        except (TypeError, ValueError):
+            return default
+
+    def _safe_float_field(key: str, default: Optional[float]) -> Optional[float]:
+        val = payload.get(key)
+        if val is None:
+            return default
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return default
+
+    llm_genre = payload.get("favorite_genre")
+    llm_avoid = payload.get("avoid_genres", [])
+
     return {
         "schema_version": SCHEMA_VERSION,
         "trace_id": trace_id or str(uuid4()),
@@ -412,6 +441,18 @@ def _gemini_analyze_mood(
         "energy_hint": energy_hint,
         "mood_candidates": candidates,
         "notes": notes,
+        # LLM-assigned audio feature targets — consumed by Agent 2 in llm mode
+        "target_energy": _safe_clamp("target_energy", None),
+        "target_valence": _safe_clamp("target_valence", None),
+        "target_danceability": _safe_clamp("target_danceability", None),
+        "target_tempo_bpm": _safe_float_field("target_tempo_bpm", None),
+        "target_acousticness": _safe_clamp("target_acousticness", None),
+        "target_instrumentalness": _safe_clamp("target_instrumentalness", None),
+        "target_brightness": _safe_clamp("target_brightness", None),
+        "favorite_genre": llm_genre if isinstance(llm_genre, str) and llm_genre else None,
+        "likes_acoustic": bool(payload.get("likes_acoustic", False)),
+        "avoid_genres": [g for g in llm_avoid if isinstance(g, str)] if isinstance(llm_avoid, list) else [],
+        "llm_profile": True,
     }
 
 

@@ -1,5 +1,6 @@
+import json
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def _tokenize(text: str) -> List[str]:
@@ -46,48 +47,156 @@ def _score_candidate(query_tokens: List[str], song: Dict[str, Any]) -> float:
     return overlap + genre_boost + mood_boost + tag_boost
 
 
+def _token_overlap_confidence(scored: List[Tuple[float, Any]], query_tokens: List[str]) -> float:
+    """Confidence proxy for token-overlap: top score normalized by theoretical max."""
+    if not scored or not query_tokens:
+        return 0.0
+    top_score = scored[0][0]
+    max_possible = len(query_tokens) + 4.5  # overlap + genre(1.5) + mood(2.0) + tag(1.0)
+    return round(min(1.0, top_score / max_possible), 4) if max_possible > 0 else 0.0
+
+
+def _gemini_retrieve(
+    user_message: str,
+    songs: List[Dict[str, Any]],
+    avoid: set,
+    top_n: int,
+    api_key: str,
+    model: str,
+) -> Optional[Tuple[List[Dict[str, Any]], float]]:
+    """Returns (ordered_songs, confidence) or None on failure."""
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        from langchain_core.messages import HumanMessage
+
+        eligible = [s for s in songs if str(s.get("genre", "")).lower() not in avoid]
+        catalog = [
+            {
+                "id": song.get("id"),
+                "title": song.get("title"),
+                "genre": song.get("genre"),
+                "mood": song.get("mood"),
+                "mood_tag": song.get("mood_tag"),
+            }
+            for song in eligible
+        ]
+        song_by_id = {song.get("id"): song for song in eligible}
+
+        prompt = (
+            "You are a music retrieval system. Given a user's vibe request and a song catalog, "
+            "return the songs that best match the request semantically.\n\n"
+            f"User request: {user_message!r}\n\n"
+            f"Song catalog:\n{json.dumps(catalog, indent=2)}\n\n"
+            f"Return ONLY a JSON object with two keys:\n"
+            f'  "ids": array of up to {top_n} song IDs ordered from most to least relevant\n'
+            f'  "confidence": float 0-1 indicating how well the catalog matches the request\n'
+            'Example: {"ids": [3, 7, 1], "confidence": 0.85}\n'
+            "No explanation, no markdown, just the JSON object."
+        )
+
+        llm = ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=0)
+        response = llm.invoke([HumanMessage(content=prompt)])
+        content = str(getattr(response, "content", response)).strip()
+
+        # Try parsing as object first, then fall back to bare array for robustness
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", content, re.DOTALL)
+            if match:
+                try:
+                    parsed = json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    parsed = None
+            if parsed is None:
+                arr_match = re.search(r"\[[\d,\s]+\]", content)
+                parsed = {"ids": json.loads(arr_match.group(0)), "confidence": 0.5} if arr_match else None
+
+        if parsed is None:
+            return None
+
+        ids = parsed if isinstance(parsed, list) else parsed.get("ids", [])
+        confidence = float(parsed.get("confidence", 0.5)) if isinstance(parsed, dict) else 0.5
+        confidence = max(0.0, min(1.0, confidence))
+
+        if not isinstance(ids, list):
+            return None
+
+        ordered = [song_by_id[sid] for sid in ids if sid in song_by_id]
+        return (ordered[:top_n], round(confidence, 4)) if ordered else None
+
+    except Exception:
+        return None
+
+
 def retrieve_candidates(
     agent2_payload: Dict[str, Any],
     songs: List[Dict[str, Any]],
     top_n: int,
+    user_message: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: str = "gemini-3-flash-preview",
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     profile = agent2_payload.get("profile", {}) if isinstance(agent2_payload.get("profile"), dict) else {}
     avoid = {str(genre).lower() for genre in profile.get("avoid_genres", []) if isinstance(genre, str)}
+    filtered_out = sum(1 for s in songs if str(s.get("genre", "")).lower() in avoid)
 
+    # Gemini semantic retrieval — understands vibe/intent beyond keyword matching.
+    if user_message and api_key:
+        gemini_result = _gemini_retrieve(
+            user_message=user_message,
+            songs=songs,
+            avoid=avoid,
+            top_n=max(1, top_n),
+            api_key=api_key,
+            model=model,
+        )
+        if gemini_result:
+            gemini_songs, confidence = gemini_result
+            debug = {
+                "retriever": "gemini-semantic",
+                "query": user_message,
+                "candidates_before": len(songs),
+                "candidates_after": len(gemini_songs),
+                "filtered_avoid_genres": filtered_out,
+                "retrieval_fallback": False,
+                "retrieval_confidence": confidence,
+            }
+            return gemini_songs, debug
+
+    # Token overlap fallback when Gemini is unavailable.
     query_text = _build_query_text(agent2_payload)
     query_tokens = _tokenize(query_text)
 
     scored: List[Tuple[float, Dict[str, Any]]] = []
-    filtered_out = 0
     for song in songs:
         if str(song.get("genre", "")).lower() in avoid:
-            filtered_out += 1
             continue
         score = _score_candidate(query_tokens, song)
         scored.append((score, song))
 
-    # If retrieval is weak, fall back to full catalog minus explicit avoids.
     if not scored:
         fallback = [song for song in songs if str(song.get("genre", "")).lower() not in avoid]
         debug = {
-            "retriever": "rag-lite",
+            "retriever": "token-overlap",
             "query_tokens": query_tokens,
             "candidates_before": len(songs),
             "candidates_after": len(fallback),
             "filtered_avoid_genres": filtered_out,
             "retrieval_fallback": True,
+            "retrieval_confidence": 0.0,
         }
         return fallback[: max(1, top_n)], debug
 
     scored.sort(key=lambda item: item[0], reverse=True)
-
     selected = [song for _, song in scored[: max(1, top_n)]]
     debug = {
-        "retriever": "rag-lite",
+        "retriever": "token-overlap",
         "query_tokens": query_tokens,
         "candidates_before": len(songs),
         "candidates_after": len(selected),
         "filtered_avoid_genres": filtered_out,
         "retrieval_fallback": False,
+        "retrieval_confidence": _token_overlap_confidence(scored, query_tokens),
     }
     return selected, debug

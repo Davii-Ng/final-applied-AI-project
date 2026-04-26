@@ -8,12 +8,18 @@ SCHEMA_VERSION = "1.0"
 
 def _build_user_prefs(profile_payload: Dict[str, Any]) -> Dict[str, Any]:
     profile = profile_payload.get("profile", {}) if isinstance(profile_payload.get("profile"), dict) else {}
-    return {
+    prefs: Dict[str, Any] = {
         "genre": profile.get("favorite_genre", "pop"),
         "mood": profile.get("favorite_mood", "balanced"),
         "energy": profile.get("target_energy", 0.55),
         "likes_acoustic": bool(profile.get("likes_acoustic", False)),
     }
+    # Pass through LLM-assigned audio feature targets when present (llm parser_mode)
+    for key in ("target_valence", "target_danceability", "target_tempo_bpm",
+                "target_acousticness", "target_instrumentalness", "target_brightness"):
+        if key in profile:
+            prefs[key] = profile[key]
+    return prefs
 
 
 def curate_setlist(
@@ -22,6 +28,8 @@ def curate_setlist(
     k: int = 5,
     candidate_pool_size: int = 20,
     trace_id: Optional[str] = None,
+    user_message: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> Dict[str, Any]:
     resolved_trace = trace_id or str(agent2_payload.get("trace_id", "")).strip() or "trace-missing"
 
@@ -44,6 +52,8 @@ def curate_setlist(
         agent2_payload=agent2_payload,
         songs=songs,
         top_n=pool_size,
+        user_message=user_message,
+        api_key=api_key,
     )
 
     ranked = recommend_songs(user_prefs=user_prefs, songs=retrieved_candidates, k=k_int)
@@ -82,6 +92,8 @@ class SetlistCurator:
         k: int = 5,
         candidate_pool_size: int = 20,
         trace_id: Optional[str] = None,
+        user_message: Optional[str] = None,
+        api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         return curate_setlist(
             agent2_payload=agent2_payload,
@@ -89,4 +101,6 @@ class SetlistCurator:
             k=k,
             candidate_pool_size=candidate_pool_size,
             trace_id=trace_id,
+            user_message=user_message,
+            api_key=api_key,
         )

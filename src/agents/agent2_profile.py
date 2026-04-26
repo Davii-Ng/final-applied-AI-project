@@ -168,6 +168,65 @@ def _infer_likes_acoustic(tokens: List[str], resolved_mood: str) -> bool:
     return False
 
 
+def _parse_profile_llm(
+    agent1_payload: Dict[str, Any],
+    message: str,
+    resolved_trace: str,
+) -> Dict[str, Any]:
+    """Fast path when Agent 1 ran on Gemini and already assigned all feature targets."""
+
+    def _safe(key: str, default: Any) -> Any:
+        val = agent1_payload.get(key)
+        return val if val is not None else default
+
+    mood = str(_safe("detected_mood", "balanced")).lower()
+    if mood not in ALLOWED_MOODS:
+        mood = "balanced"
+
+    llm_genre = agent1_payload.get("favorite_genre")
+    genre = _normalize_genre(str(llm_genre)) if llm_genre else DEFAULT_PROFILE["favorite_genre"]
+    if genre is None:
+        genre = DEFAULT_PROFILE["favorite_genre"]
+
+    # Merge avoid_genres from LLM with any explicit negation phrases in message
+    llm_avoids = [g for g in agent1_payload.get("avoid_genres", []) if isinstance(g, str)]
+    rule_avoids = _extract_avoid_genres(message)
+    avoid_genres = list(dict.fromkeys(llm_avoids + rule_avoids))
+
+    profile: Dict[str, Any] = {
+        "favorite_genre": genre,
+        "favorite_mood": mood,
+        "target_energy": round(_clamp_01(float(_safe("target_energy", 0.55))), 3),
+        "target_valence": round(_clamp_01(float(_safe("target_valence", 0.6))), 3),
+        "target_danceability": round(_clamp_01(float(_safe("target_danceability", 0.6))), 3),
+        "target_tempo_bpm": round(float(_safe("target_tempo_bpm", 100.0)), 1),
+        "target_acousticness": round(_clamp_01(float(_safe("target_acousticness", 0.3))), 3),
+        "target_instrumentalness": round(_clamp_01(float(_safe("target_instrumentalness", 0.3))), 3),
+        "target_brightness": round(_clamp_01(float(_safe("target_brightness", 0.5))), 3),
+        "likes_acoustic": bool(agent1_payload.get("likes_acoustic", False)),
+        "avoid_genres": avoid_genres,
+    }
+
+    summary = (
+        f"Prefers {profile['favorite_genre']} with a {profile['favorite_mood']} vibe "
+        f"around energy {profile['target_energy']:.2f}."
+    )
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "trace_id": resolved_trace,
+        "profile": profile,
+        "constraints": {
+            "missing_fields": [],
+            "inferred_fields": [],
+            "low_confidence_mood": False,
+            "disallowed_or_unknown_terms": [],
+            "parser_mode": "llm",
+        },
+        "request_summary": summary,
+    }
+
+
 def parse_profile(
     user_message: str,
     agent1_payload: Dict[str, Any],
@@ -178,6 +237,14 @@ def parse_profile(
     tokens = _tokenize(message)
     context = optional_context or {}
 
+    incoming_trace = trace_id or agent1_payload.get("trace_id")
+    resolved_trace = incoming_trace if isinstance(incoming_trace, str) and incoming_trace.strip() else str(uuid4())
+
+    # LLM fast path — Agent 1 already assigned all feature targets via Gemini
+    if agent1_payload.get("llm_profile"):
+        return _parse_profile_llm(agent1_payload, message, resolved_trace)
+
+    # Rule-based path (local backend fallback)
     constraints: Dict[str, Any] = {
         "missing_fields": [],
         "inferred_fields": [],
@@ -185,9 +252,6 @@ def parse_profile(
         "disallowed_or_unknown_terms": [],
         "parser_mode": "rules",
     }
-
-    incoming_trace = trace_id or agent1_payload.get("trace_id")
-    resolved_trace = incoming_trace if isinstance(incoming_trace, str) and incoming_trace.strip() else str(uuid4())
 
     agent_mood = str(agent1_payload.get("detected_mood", "balanced")).lower()
     if agent_mood not in ALLOWED_MOODS:
