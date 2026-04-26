@@ -62,28 +62,44 @@ Key dependencies:
 ## 3. Architecture Overview
 
 ```mermaid
-flowchart LR
-  User[Person types a vibe in CLI]
-  Orch[Orchestrator<br/>runs the full pipeline]
+flowchart TD
+  subgraph H[Human]
+    U[User enters a vibe]
+    R[User reviews results]
+  end
 
-  A1[Agent 1<br/>Detect mood]
-  A2[Agent 2<br/>Build listener profile]
-  A3[Agent 3<br/>Find and rank songs]
-  A4[Agent 4<br/>Write DJ narration]
+  subgraph SYS[AI System]
+    CLI[CLI receives input]
+    ORCH[Orchestrator runs pipeline]
+    M[Agent 1: Mood Detector]
+    P[Agent 2: Profile Builder]
+    RET[Retriever: find candidate songs]
+    RANK[Ranker: score and order songs]
+    NAR[Agent 4: Narrator writes summary]
+    OUT[CLI shows setlist and explanation]
+  end
 
-  Songs[(songs.csv)]
-  KB[(knowledge_base.json)]
+  subgraph D[Data Sources]
+    SONGS[(songs.csv)]
+    KB[(knowledge_base.json)]
+  end
 
-  Output[CLI shows:<br/>setlist + explanations + narration]
-  HumanReview[Human checks:<br/>"Does this match the vibe?"]
-  Tests[Test suite + eval_harness<br/>verify quality and regressions]
+  subgraph Q[Quality Checks]
+    TESTS[pytest test suite]
+    EVAL[eval_harness.py]
+  end
 
-  User --> Orch --> A1 --> A2 --> A3 --> A4 --> Output --> HumanReview
-  Songs --> A3
-  KB --> A3
-  Tests --> Orch
-  Tests --> A3
+  U --> CLI --> ORCH --> M --> P --> RET --> RANK --> NAR --> OUT --> R
+  SONGS --> RET
+  KB --> RET
+  TESTS --> ORCH
+  EVAL --> ORCH
 ```
+
+Reading guide:
+- Main path: user input -> AI processing -> recommendation output
+- Grounding data: `songs.csv` and `knowledge_base.json` feed retrieval
+- Validation path: `pytest` and `eval_harness.py` check system behavior
 
 ### Agent 3 State Machine (agentic mode)
 
