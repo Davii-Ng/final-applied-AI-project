@@ -1,120 +1,40 @@
-# DJ Music Recommender
+<h1 align="center">🎧 DJ Music Recommender</h1>
 
-A terminal-first multi-agent music recommender built for CodePath AI110. Given a free-text "vibe" description, a 4-agent pipeline detects mood, builds a listener profile, curates a ranked setlist, and writes a DJ narration paragraph.
+<p align="center">
+  <em>Tell it your vibe. Watch four AI agents turn it into a setlist.</em>
+</p>
 
-This project matters because it turns a subjective request ("match my vibe") into a transparent, testable AI workflow that shows exactly how each step contributes to the final recommendation.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/Tests-53%20passing-brightgreen?style=flat-square&logo=pytest" alt="Tests">
+  <img src="https://img.shields.io/badge/Agents-4-purple?style=flat-square" alt="Agents">
+  <img src="https://img.shields.io/badge/Works%20Offline-yes-orange?style=flat-square" alt="Offline">
+  <img src="https://img.shields.io/badge/Built%20for-CodePath%20AI110-red?style=flat-square" alt="CodePath">
+</p>
 
-## Original Project (Modules 1-3)
+---
 
-**Original project name:** Music Recommender Simulation (CodePath AI110 Modules 1-3).
+## What It Does
 
-In the original version, the system used a small hand-curated song dataset and deterministic scoring to recommend tracks based on mood, genre, and energy. Its core capability was to rank songs from structured features and generate explainable picks, which this project extends into a multi-agent pipeline with retrieval grounding and narration.
+You type `"hit the gym"` and a 4-agent pipeline:
 
-## Architecture
+1. **detects** your mood (intense, 0.59 confidence)
+2. **builds** a listener profile (high-energy, danceable)
+3. **retrieves + ranks** songs from a 40-track catalog using cosine similarity across 7 audio features
+4. **writes** a DJ narration paragraph with Gemini
 
-```
-User vibe input
-      |
-  [Agent 1] Mood detection — sentence-transformers (all-MiniLM-L6-v2)
-      |
-  [Agent 2] Profile builder — rule-based genre/energy/constraint parser
-      |
-  [Agent 3] Setlist curator — agentic state machine
-      |        plan -> retrieve -> check_confidence -> [retry] -> rank -> finalize
-      |        Retrieval: Gemini semantic (with KB context) or token-overlap fallback
-      |
-  [Agent 4] DJ narrator — Gemini paragraph or template fallback
-      |
-  CLI output
-```
+Every step is logged, scored, and explained — no black-box recommendations.
 
-### Architecture Overview (In Plain English)
+---
 
-The system takes a user vibe from the CLI, then passes it through specialized agents that each do one job: detect mood, build a profile, retrieve and rank songs, and narrate the result. The retriever grounds decisions in `songs.csv` and `knowledge_base.json`, and the final output returns both recommendations and reasoning. Testing (`pytest`, `eval_harness.py`) and human review are used to verify that outputs are correct and useful.
-
-### What makes it agentic
-
-Agent 3 runs an observable state machine with a confidence-based retry loop:
-
-1. **Plan** — reads profile, logs catalog size and retry budget
-2. **Retrieve** — calls the retrieval tool (Gemini semantic or token-overlap)
-3. **Check confidence** — if score < 0.5 and retries remain, go to Retry
-4. **Retry** — clears `avoid_genres`, doubles the candidate pool, retrieves again
-5. **Rank** — scores candidates with cosine similarity across 7 audio features
-6. **Finalize** — assembles setlist with explanations
-
-Every step is logged and displayed in the CLI under "Reasoning Steps".
-
-### RAG / Knowledge Base
-
-`data/knowledge_base.json` holds 18 documents (9 genres + 9 moods), each describing audio feature ranges. When Gemini retrieval is active, relevant KB documents are injected into the prompt as grounding context.
-
-## Quick Start
-
-**1. Create and activate a virtual environment**
-
-```bash
-python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS/Linux
-source .venv/bin/activate
-```
-
-**2. Install dependencies**
-
-```bash
-pip install -r requirements.txt
-```
-
-**3. Add your API key (optional — Gemini features only)**
-
-Create a `.env` file in the project root:
+## Live Demo
 
 ```
-GOOGLE_API_KEY=your_key_here
-```
+  DJ Recommender  [agentic mode]
+  ----------------------------------------
+  How many songs? [default 3]: 3
 
-or
-
-```
-GEMINI_API_KEY=your_key_here
-```
-
-Without an API key, Agent 3 falls back to token-overlap retrieval and Agent 4 uses a template paragraph. Agent 1 (sentence-transformers) and Agent 2 always run locally.
-
-**4. Run the interactive CLI**
-
-```bash
-python -m src.cli
-```
-
-**5. Run the evaluation harness**
-
-```bash
-# Standard mode (single retrieve + rank)
-python eval_harness.py
-
-# Agentic mode (state machine with retry)
-python eval_harness.py --agentic
-```
-
-**6. Run tests**
-
-```bash
-python -m pytest -q .
-```
-
-## CLI Output Example
-
-```
-DJ Recommender  [agentic mode]
-----------------------------------------
-How many songs? [default 3]: 3
-
-Type your vibe. Enter 'quit' to exit.
+  Type your vibe. Enter 'quit' to exit.
 
 Describe your vibe: dark brooding night drive music
 
@@ -137,234 +57,274 @@ Describe your vibe: dark brooding night drive music
   [finalize]         setlist_assembled
 
   #    Title                     Artist                Why
-  ─────────────────────────────────────────────────────────
+  ─────────────────────────────────────────────────────────────────────────────────
   1    Midnight Protocol         Neon Echo             audio profile match (+7.21)
   2    Static Dreams             Volt Circuit          mood match: moody (+2.00)
   3    Chrome Horizon            Cyber Drift           audio profile match (+6.94)
 
-  Sink into this moody synthwave ride with Midnight Protocol...
+  Sink into this moody synthwave ride — Midnight Protocol sets the tone with its
+  pulsing bass and cold, cinematic textures, Static Dreams drifts you deeper into
+  introspection, and Chrome Horizon closes the journey on the open road.
 ```
+
+---
+
+## Pipeline Architecture
+
+```
+╔══════════════════════════════════════════════════════════════╗
+║                     USER VIBE INPUT                          ║
+║         "time to hit the gym" / "a bit tired today"          ║
+╚═══════════════════════════╤══════════════════════════════════╝
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────────┐
+│  AGENT 1 — Mood Detector                                  │
+│  sentence-transformers (all-MiniLM-L6-v2)                 │
+│  + keyword/phrase hybrid boost                            │
+│  → detected_mood, confidence, energy_hint                 │
+└───────────────────────────┬───────────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────────┐
+│  AGENT 2 — Profile Builder                                │
+│  Rule-based genre / energy / constraint parser            │
+│  Handles negation: "no edm", "avoid rap"                  │
+│  → favorite_genre, target_energy, avoid_genres            │
+└───────────────────────────┬───────────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────────┐
+│  AGENT 3 — Setlist Curator  [agentic state machine]       │
+│                                                           │
+│   plan → retrieve → check confidence                      │
+│               ↑          │                                │
+│               └── retry ←┘ (if conf < 0.5)               │
+│                          │                                │
+│                        rank → finalize                    │
+│                                                           │
+│  Retrieval: Gemini semantic + KB grounding                │
+│             OR token-overlap fallback (no key needed)     │
+└───────────────────────────┬───────────────────────────────┘
+                            │
+                            ▼
+┌───────────────────────────────────────────────────────────┐
+│  AGENT 4 — DJ Narrator                                    │
+│  Gemini writes a 2–3 sentence paragraph                   │
+│  matching mood, genre, and setlist                        │
+└───────────────────────────┬───────────────────────────────┘
+                            │
+                            ▼
+╔══════════════════════════════════════════════════════════════╗
+║   CLI: mood · energy · reasoning trace · setlist · narration ║
+╚══════════════════════════════════════════════════════════════╝
+```
+
+### What makes it agentic
+
+Agent 3 is a **self-correcting state machine** — not a single LLM call. It evaluates its own retrieval quality and retries with a broader search if confidence is low:
+
+| Step | What happens |
+|------|-------------|
+| `plan` | Reads profile, logs catalog size + retry budget |
+| `retrieve` | Calls Gemini semantic search (or token-overlap fallback) |
+| `check_confidence` | If score < 0.5 and retries remain → retry |
+| `retry` | Clears avoid-genres, doubles candidate pool |
+| `rank` | Cosine similarity across 7 audio features |
+| `finalize` | Assembles setlist with per-song explanations |
+
+Every step is logged and shown in the CLI under **Reasoning Steps**.
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Mood detection | `sentence-transformers` · `all-MiniLM-L6-v2` · keyword hybrid |
+| Semantic retrieval | Google Gemini via `langchain-google-genai` |
+| Ranking | Cosine similarity (NumPy) across 7 audio features |
+| Narration | Gemini generative paragraph (`temperature=0.4`) |
+| Grounding data | 40-song CSV catalog + 18-doc knowledge base (JSON) |
+| Testing | `pytest` · 53 tests · smoke + unit + integration |
+| Evaluation | Custom 12-case eval harness (`eval_harness.py`) |
+
+---
+
+## Quick Start
+
+**1. Set up environment**
+
+```bash
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# macOS / Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+**2. Add your API key** *(optional — only needed for Gemini features)*
+
+```bash
+# .env file in project root
+GOOGLE_API_KEY=your_key_here
+```
+
+> Without a key: Agent 1 and Agent 2 run fully locally, Agent 3 uses token-overlap retrieval, and Agent 4 uses a template paragraph. The core pipeline still works.
+
+**3. Run it**
+
+```bash
+python -m src.cli
+```
+
+**4. Run tests**
+
+```bash
+python -m pytest -q .
+```
+
+**5. Run the evaluation harness**
+
+```bash
+python eval_harness.py --agentic   # 12 cases, all 9 moods
+```
+
+---
 
 ## Sample Interactions
 
-These examples show different user intents and the corresponding AI behavior.
+### 🏋️ Workout mode
+> `"Time to hit the gym"`
 
-### Example 1: High-energy workout
+Mood → `intense` · Energy → high · Genre → pop  
+Retriever pulls fast, high-danceability tracks with aggressive energy profile.
 
-**Input:** `Need hype songs for a workout run tonight`
+---
 
-**Result (typical):**
-- Mood detected as `intense` or `happy` with medium-high confidence
-- Profile leans toward high energy and danceable songs
-- Output setlist prioritizes energetic tracks with fast tempo and strong beat
+### 📚 Study session
+> `"Give me calm lofi study music"`
 
-### Example 2: Quiet study session
+Mood → `focused` · Energy → low · Genre → lofi  
+Profile favors lower energy, high instrumentalness, acoustic-friendly songs.
 
-**Input:** `Give me calm lofi study music`
+---
 
-**Result (typical):**
-- Mood detected as `focused` or `chill`
-- Profile favors lower-to-mid energy, often acoustic/instrumental-friendly
-- Output setlist emphasizes lofi/chill songs with smoother audio features
+### 🌧️ Moody night drive
+> `"dark brooding night drive music"`
 
-### Example 3: Moody night drive
+Mood → `moody` · Energy → medium · Genre → synthwave  
+Narrator writes a full atmospheric paragraph matching the tone.
 
-**Input:** `dark brooding night drive music`
+---
 
-**Result (typical):**
-- Mood detected as `moody`
-- Retriever pulls candidates aligned with darker mood tags
-- Narrator returns a short DJ-style paragraph matching the tone
+### 😴 Tired and winding down
+> `"A bit tired today"`
+
+Mood → `relaxed` · Energy → low  
+Setlist shifts toward gentle, low-tempo tracks with high acousticness.
+
+---
+
+## Recommender Scoring
+
+Each song is scored against a 7-dimensional user vector:
+
+```
+score = cosine_similarity(song_vec, user_vec) × 7.0
+      + mood_match bonus          (up to +2.0)
+      + genre_exact_match bonus   (+1.0)
+      + mood_tag bonus            (+0.5)
+      − diversity_penalties       (−2.0 repeat artist / −1.0 repeat genre)
+```
+
+Audio features in the vector:
+
+```
+[ energy · valence · tempo_norm · danceability · acousticness · instrumentalness · brightness ]
+```
+
+All features are normalized to `[0, 1]`. Tempo is mapped from `[60, 200 BPM] → [0, 1]`.
+
+---
 
 ## Project Structure
 
 ```
-src/
-  cli.py              — interactive entry point
-  main.py             — demo runner (batch mode)
-  orchestrator.py     — runs the 4-agent pipeline with progress logging
-  recommender.py      — cosine similarity scoring and greedy ranked selection
-  retrieval.py        — Gemini semantic retrieval with token-overlap fallback
-  knowledge.py        — knowledge base loader and context formatter
-  models.py           — Song and UserProfile dataclasses
-  agents/
-    agent1_mood.py    — mood detection (sentence-transformers hybrid / local keyword)
-    agent2_profile.py — listener profile builder (rule-based)
-    agent3.py         — agentic setlist curator (state machine + simple mode)
-    agent4_narrator.py — DJ narration (Gemini paragraph / template fallback)
-data/
-  songs.csv           — 40-song catalog with audio features
-  knowledge_base.json — 18 KB documents (9 genres + 9 moods) for RAG context
-tests/
-  test_recommender.py
-  test_retrieval.py
-  test_agent1_mood.py
-  test_agent2_profile.py
-  test_agent3_setlist.py
-  test_agent4_narrator.py
-  test_orchestrator.py
-  test_pipeline_smoke.py
-  test_connectivity_smoke.py
-eval_harness.py       — 12-case evaluation script with mood/genre/confidence metrics
-docs/
-  implementation_guide.md
-  model_card.md
+├── src/
+│   ├── cli.py                 ← interactive entry point
+│   ├── orchestrator.py        ← 4-agent pipeline wiring + logging
+│   ├── recommender.py         ← cosine scoring + greedy ranked selection
+│   ├── retrieval.py           ← Gemini semantic retrieval + token-overlap fallback
+│   ├── knowledge.py           ← KB loader + RAG context formatter
+│   ├── models.py              ← Song and UserProfile dataclasses
+│   └── agents/
+│       ├── agent1_mood.py     ← mood detection (ST hybrid + local keyword)
+│       ├── agent2_profile.py  ← profile builder (rule-based)
+│       ├── agent3.py          ← agentic setlist curator (state machine)
+│       └── agent4_narrator.py ← DJ narration (Gemini / template fallback)
+│
+├── data/
+│   ├── songs.csv              ← 40-song catalog with audio features
+│   └── knowledge_base.json   ← 18 KB docs (9 genres + 9 moods) for RAG
+│
+├── tests/                     ← 53 tests across all agents and modules
+├── eval_harness.py            ← 12-case evaluation script
+└── docs/
+    ├── implementation_guide.md
+    └── model_card.md
 ```
+
+---
+
+## Design Decisions
+
+| Decision | Why | Trade-off |
+|----------|-----|-----------|
+| 4-agent pipeline instead of one LLM call | Each step is observable, testable, debuggable | More orchestration complexity |
+| Deterministic cosine ranking | Predictable results, easy unit tests | Less flexible than generative ranking |
+| Gemini retrieval + local fallback | Works with or without an API key | Fallback has lower semantic quality |
+| Sentence-transformers + keyword hybrid | Handles short colloquial phrases ("hit the gym") that confuse pure embeddings | Slight complexity in scoring logic |
+| Small curated dataset | Fast iteration, explainable outcomes | Limited diversity for niche tastes |
+
+---
+
+## Testing
+
+```
+53 passed in 8.15s
+```
+
+Coverage across:
+- Agent 1: mood detection, confidence thresholds, ST + local backends
+- Agent 2: profile parsing, negation, energy inference
+- Agent 3: agentic state machine, retry logic, confidence gating
+- Agent 4: narration with Gemini and template fallback
+- Retrieval: Gemini path, token-overlap fallback, error surfacing
+- Orchestrator + pipeline smoke tests
+
+---
 
 ## Documentation
 
-Find developer-facing docs in the `docs/` folder:
+| Doc | Description |
+|-----|-------------|
+| [Implementation Guide](docs/implementation_guide.md) | Full data contracts, agent signatures, retrieval pipeline, error handling |
+| [Model Card & Reflection](docs/model_card.md) | Reliability methodology, behavioral findings, ethics, AI collaboration notes |
 
-- Implementation guide: [docs/implementation_guide.md](docs/implementation_guide.md)
-- Model card (includes reflection + ethics): [docs/model_card.md](docs/model_card.md)
-
-
-## Agent Contracts
-
-### Agent 1 — Mood Detection
-
-**Backends:**
-- `sentence_transformers` (default) — embeds user message against mood reference sentences using `all-MiniLM-L6-v2`, with a hybrid keyword/phrase boost to handle short colloquial inputs. ~13ms per call, no API key needed.
-- `local` — weighted keyword matching with phrase map
-
-**Output fields:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `detected_mood` | str | One of: happy, chill, relaxed, moody, sad, intense, focused, nostalgic, balanced |
-| `confidence` | float | Cosine similarity score (ST) or keyword confidence (local) |
-| `energy_hint` | float | Derived energy level [0.0–1.0] |
-| `mood_candidates` | list[str] | Top 3 mood candidates by score |
-| `notes` | str | Backend used and score |
-
-Fallback rule: if ST cosine similarity < 0.20, mood is set to `balanced`. Local backend uses 0.55 threshold.
-
-### Agent 2 — Profile Builder
-
-Converts Agent 1 output + user message into a recommender-ready profile. Always rule-based.
-
-**Output — `profile` fields:**
-
-| Field | Type |
-|-------|------|
-| `favorite_genre` | str |
-| `favorite_mood` | str |
-| `target_energy` | float [0–1] |
-| `likes_acoustic` | bool |
-| `avoid_genres` | list[str] |
-
-Negation phrases like `"no edm"` or `"avoid rap"` populate `avoid_genres`.
-
-### Agent 3 — Setlist Curator
-
-Two modes via `agentic` parameter (default `True`):
-
-**Agentic mode** — runs the full state machine (plan → retrieve → check → [retry] → rank → finalize). Returns `agentic_steps` list for observability.
-
-**Simple mode** — single retrieve + rank pass. Used by `eval_harness.py` standard mode.
-
-**Retrieval:**
-- With `GOOGLE_API_KEY`: Gemini semantic retrieval — pre-filters to top 20 by token overlap, then sends to Gemini with KB context injected. Returns `retrieval_confidence` 0–1.
-- Without key: token-overlap scoring with normalized confidence proxy.
-
-**Output — `retrieval` debug fields:**
-
-| Field | Description |
-|-------|-------------|
-| `retriever` | `"gemini-semantic"` or `"token-overlap"` |
-| `candidates_after` | Pool size passed to ranker |
-| `retrieval_confidence` | 0–1 confidence score |
-| `kb_docs_injected` | Number of KB docs added to Gemini prompt |
-| `filtered_avoid_genres` | Songs excluded by avoid list |
-| `gemini_error` | Present when Gemini retrieval failed; explains why token-overlap was used |
-
-### Agent 4 — DJ Narrator
-
-Writes a 2–3 sentence paragraph introducing the setlist.
-
-- `gemini` backend: calls Gemini with `temperature=0.4` (no token cap — allows full natural sentences)
-- `local` backend: fills a template string
-
-## Recommender Scoring
-
-Scoring uses **cosine similarity** across 7 normalized audio features:
-
-| Feature | Normalized range |
-|---------|-----------------|
-| Energy | [0, 1] |
-| Valence | [0, 1] |
-| Danceability | [0, 1] |
-| Tempo BPM | [60, 200] → [0, 1] |
-| Acousticness | [0, 1] |
-| Instrumentalness | [0, 1] |
-| Brightness | [0, 1] |
-
-Audio cosine score is weighted ×7.0. On top of that:
-- Mood match: up to +2.0
-- Genre match: +1.0
-- Mood tag match: +0.5
-
-**Diversity penalties** applied during greedy selection:
-- Repeated artist: −2.0
-- Repeated genre: −1.0
-
-## Evaluation
-
-Run `python eval_harness.py --agentic` to evaluate 12 test cases covering all 9 moods against a local backend (no API key needed).
-
-Metrics reported per case: mood match, genre match, retrieval confidence, avoid-genre violations.
-
-Aggregate summary shows pass rate, mood/genre accuracy, and average confidence.
-
-## Design Decisions And Trade-offs
-
-1. **Multi-agent pipeline instead of one LLM call**
-- Why: Improves observability and makes each step easier to debug.
-- Trade-off: More orchestration complexity and more moving parts.
-
-2. **Deterministic ranking (cosine + bonuses/penalties)**
-- Why: Predictable behavior and easier unit testing.
-- Trade-off: Less flexible than end-to-end generative ranking.
-
-3. **Gemini retrieval with local fallback**
-- Why: Works with and without API keys, so demo reliability is higher.
-- Trade-off: Fallback retrieval has lower semantic quality than Gemini.
-
-4. **Small curated dataset**
-- Why: Fast iteration and explainable outcomes for class/demo context.
-- Trade-off: Limited diversity and coverage for unusual preferences.
-
-## Testing Summary
-
-What worked:
-- Unit tests for agents, retrieval, recommender, and orchestrator validate core logic.
-- Pipeline and connectivity smoke tests confirm end-to-end execution paths.
-- Evaluation harness provides repeatable checks for mood/genre matching and avoid-genre constraints.
-
-What did not work as well:
-- Retrieval confidence is lower in fallback token-overlap mode than in Gemini semantic mode.
-- Small catalog size can produce repetitive top tracks for certain profiles.
-
-What I learned:
-- Separating retrieval and ranking makes failures easier to isolate.
-- Confidence thresholds and retry logic are critical for stable agentic behavior.
-
-## Reflection
-
-This project reinforced that good AI systems are not just about model output quality; they are about structure, guardrails, and transparency. Breaking the workflow into agents made debugging and iteration faster, and it made system behavior easier to explain to non-technical stakeholders.
-
-It also showed the importance of practical fallbacks: when external model calls fail or are unavailable, deterministic local logic keeps the system functional. The main next step is improving dataset breadth and retrieval quality so recommendations stay diverse while remaining explainable.
+---
 
 ## Dependencies
 
-See `requirements.txt`. Key packages:
-
 | Package | Purpose |
 |---------|---------|
-| `sentence-transformers` | Agent 1 mood detection (all-MiniLM-L6-v2) |
-| `langchain-google-genai` | Gemini calls for Agent 3 retrieval and Agent 4 narration |
+| `sentence-transformers` | Agent 1 — mood detection via `all-MiniLM-L6-v2` |
+| `langchain-google-genai` | Agent 3 retrieval + Agent 4 narration via Gemini |
 | `langchain-core` | LangChain message primitives |
-| `python-dotenv` | Loads `GOOGLE_API_KEY` from `.env` |
-| `pandas` | CSV loading |
+| `python-dotenv` | Loads API keys from `.env` |
 | `numpy` | Cosine similarity math |
 | `pytest` | Test runner |
