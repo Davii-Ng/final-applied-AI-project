@@ -167,6 +167,16 @@ docs/
   implementation_guide.md
 ```
 
+## Documentation
+
+Find developer-facing docs in the `docs/` folder:
+
+- Implementation guide: [docs/implementation_guide.md](docs/implementation_guide.md)
+- Project brief / idea: [docs/idea.md](docs/idea.md)
+- Reflection notes: [docs/reflection.md](docs/reflection.md)
+- Model card: [docs/model_card.md](docs/model_card.md)
+
+
 ## Agent Contracts
 
 ### Agent 1 — Mood Detection
