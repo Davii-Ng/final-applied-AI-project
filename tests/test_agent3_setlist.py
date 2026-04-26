@@ -1,4 +1,4 @@
-from src.agents.agent3_setlist import SetlistCurator, curate_setlist
+from src.agents.agent3 import SetlistCurator, curate_setlist
 
 
 def _agent2_payload() -> dict:
@@ -83,7 +83,8 @@ def test_curate_setlist_honors_avoid_genres_in_retrieval_pool():
     payload_in = _agent2_payload()
     payload_in["profile"]["avoid_genres"] = ["pop"]
 
-    payload = curate_setlist(agent2_payload=payload_in, songs=_songs(), k=1)
+    # Use simple (non-agentic) path so avoid_genres isn't cleared by retry logic.
+    payload = curate_setlist(agent2_payload=payload_in, songs=_songs(), k=1, agentic=False)
 
     assert payload["retrieval"]["filtered_avoid_genres"] >= 1
     # With pop avoided, the remaining candidate should come from non-pop entries.

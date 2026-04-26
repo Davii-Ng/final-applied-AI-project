@@ -378,9 +378,13 @@ def _gemini_analyze_mood(
     llm_class: Any,
     message_class: Any,
 ) -> Dict[str, Any]:
-    llm = llm_class(model=model, google_api_key=api_key, temperature=0)
+    llm = llm_class(model=model, google_api_key=api_key, temperature=0, max_output_tokens=256)
     response = llm.invoke([message_class(content=_gemini_prompt(user_message, optional_context))])
-    response_content = str(getattr(response, "content", response))
+    raw = getattr(response, "content", response)
+    if isinstance(raw, list):
+        response_content = " ".join(b.get("text", "") for b in raw if isinstance(b, dict) and "text" in b)
+    else:
+        response_content = str(raw)
 
     payload = _extract_json_content(response_content)
     if payload is None:
@@ -456,6 +460,137 @@ def _gemini_analyze_mood(
     }
 
 
+_ST_MODEL_NAME = "all-MiniLM-L6-v2"
+_st_model_cache = None
+
+_ST_MOOD_REFERENCES: Dict[str, List[str]] = {
+    "happy": [
+        "I feel happy joyful euphoric and excited, ready to celebrate and have fun with friends",
+        "upbeat cheerful sunny blessed vibing lit amazing great party celebrate joyful",
+        "I am in a great mood, feeling positive, bright and energetic",
+    ],
+    "chill": [
+        "I want to chill out with lofi beats, laid-back mellow background music while relaxing",
+        "chill lofi mellow laidback breezy casual easy vibes coffee afternoon Sunday",
+        "just vibing, something chill and relaxed, nothing too intense, lofi hip hop",
+    ],
+    "relaxed": [
+        "I need to unwind and decompress after a long day, something peaceful and soothing",
+        "unwind calm peaceful soothing gentle quiet tranquil wind down rest spa ambient",
+        "slow calm music to help me rest, de-stress and feel at ease, very gentle",
+    ],
+    "moody": [
+        "I am feeling dark brooding atmospheric and introspective, late night deep thoughts",
+        "moody dark atmospheric cloudy brooding melancholic night drive indie alternative",
+        "complex emotional music, bittersweet, contemplative, rainy window, introspective",
+    ],
+    "sad": [
+        "I feel sad heartbroken lonely and want to cry, emotional grief and melancholy",
+        "sad heartbreak lonely cry tears emotional melancholy loss grief blue depressed",
+        "I am going through something hard, feeling down, music that matches my sadness",
+    ],
+    "intense": [
+        "I need hype intense aggressive high energy music for a workout sprint or game",
+        "intense hype pump workout gym beast mode aggressive sprint training power adrenaline",
+        "fast loud powerful energetic music, pushing limits, going hard, maximum energy",
+    ],
+    "focused": [
+        "I need to concentrate and focus on studying coding or deep work with no distractions",
+        "focus concentrate study coding work deadline productive deep work flow state instrumental",
+        "background music to help me think clearly and stay in the zone while working",
+    ],
+    "nostalgic": [
+        "I want throwback retro classic memories from the old days, childhood nostalgia",
+        "nostalgic throwback retro classic old school memories childhood vintage 90s 80s",
+        "songs that remind me of the past, good old times, sentimental memories",
+    ],
+    "balanced": [
+        "just play me something nice, anything good, no strong preference",
+        "neutral balanced mixed general background pleasant surprise me anything",
+    ],
+}
+
+_ST_CONFIDENCE_THRESHOLD = 0.38  # cosine similarity range differs from Gemini confidence
+
+
+def _get_st_model():
+    global _st_model_cache
+    if _st_model_cache is None:
+        from sentence_transformers import SentenceTransformer
+        _st_model_cache = SentenceTransformer(_ST_MODEL_NAME)
+    return _st_model_cache
+
+
+def _st_analyze_mood(
+    user_message: str,
+    optional_context: Optional[Dict[str, Any]],
+    trace_id: Optional[str],
+) -> Dict[str, Any]:
+    import numpy as np
+    model = _get_st_model()
+
+    moods = list(_ST_MOOD_REFERENCES.keys())
+
+    # Encode all reference sentences in one batch, then average per mood.
+    all_refs = [s for refs in _ST_MOOD_REFERENCES.values() for s in refs]
+    ref_counts = [len(refs) for refs in _ST_MOOD_REFERENCES.values()]
+
+    all_sentences = [user_message] + all_refs
+    embeddings = model.encode(all_sentences, normalize_embeddings=True, show_progress_bar=False)
+
+    user_emb = embeddings[0]
+    ref_embs = embeddings[1:]
+
+    # Average embeddings per mood, then re-normalize.
+    mood_scores = []
+    offset = 0
+    for count in ref_counts:
+        mood_emb = ref_embs[offset:offset + count].mean(axis=0)
+        norm = np.linalg.norm(mood_emb)
+        if norm > 0:
+            mood_emb = mood_emb / norm
+        mood_scores.append(float(user_emb @ mood_emb))
+        offset += count
+
+    best_idx = int(max(range(len(mood_scores)), key=lambda i: mood_scores[i]))
+    best_mood = moods[best_idx]
+    best_score = mood_scores[best_idx]
+
+    sorted_pairs = sorted(zip(moods, mood_scores), key=lambda x: x[1], reverse=True)
+    candidates = [m for m, _ in sorted_pairs[:3]]
+
+    confidence = round(float(best_score), 4)
+    detected_mood = best_mood if confidence >= _ST_CONFIDENCE_THRESHOLD else FALLBACK_MOOD
+
+    energy_hint = {
+        "happy": 0.75, "intense": 0.90, "chill": 0.40, "relaxed": 0.30,
+        "moody": 0.50, "sad": 0.35, "focused": 0.45, "nostalgic": 0.55,
+        "balanced": 0.55,
+    }.get(detected_mood, 0.55)
+
+    resolved_trace = trace_id or str(uuid4())
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "trace_id": resolved_trace,
+        "detected_mood": detected_mood,
+        "confidence": confidence,
+        "energy_hint": energy_hint,
+        "mood_candidates": candidates,
+        "notes": f"sentence-transformer:{_ST_MODEL_NAME} score={confidence:.3f}",
+        "target_energy": None,
+        "target_valence": None,
+        "target_danceability": None,
+        "target_tempo_bpm": None,
+        "target_acousticness": None,
+        "target_instrumentalness": None,
+        "target_brightness": None,
+        "favorite_genre": None,
+        "likes_acoustic": False,
+        "avoid_genres": [],
+        "llm_profile": False,
+    }
+
+
 def analyze_mood(
     user_message: str,
     optional_context: Optional[Dict[str, Any]] = None,
@@ -471,10 +606,13 @@ def analyze_mood(
     if selected_backend == "local":
         return _local_analyze_mood(user_message, optional_context, trace_id)
 
-    if selected_backend not in {"gemini", "auto"}:
-        raise ValueError("backend must be one of: local, gemini, auto")
+    if selected_backend == "sentence_transformers":
+        return _st_analyze_mood(user_message, optional_context, trace_id)
 
-    resolved_key = api_key or os.getenv("GOOGLE_API_KEY")
+    if selected_backend not in {"gemini", "auto"}:
+        raise ValueError("backend must be one of: local, gemini, auto, sentence_transformers")
+
+    resolved_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     should_try_gemini = selected_backend == "gemini" or bool(resolved_key)
 
     if should_try_gemini:

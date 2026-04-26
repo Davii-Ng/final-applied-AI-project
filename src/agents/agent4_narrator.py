@@ -5,6 +5,17 @@ from typing import Any, Dict, List, Optional
 SCHEMA_VERSION = "1.0"
 
 
+def _lc_text(response) -> str:
+    """Extract plain text from a LangChain response (content may be str or list of blocks)."""
+    content = getattr(response, "content", response)
+    if isinstance(content, list):
+        return " ".join(
+            block.get("text", "") for block in content
+            if isinstance(block, dict) and "text" in block
+        ).strip()
+    return str(content).strip()
+
+
 def _gemini_paragraph(
     mood: str,
     genre: str,
@@ -30,9 +41,9 @@ def _gemini_paragraph(
         f"Tracks: {tracks}"
     )
 
-    llm = ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=0.7)
+    llm = ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=0.4, max_output_tokens=150)
     response = llm.invoke([HumanMessage(content=prompt)])
-    return str(getattr(response, "content", response)).strip()
+    return _lc_text(response)
 
 
 def _template_paragraph(mood: str, genre: str, setlist: List[Dict[str, Any]]) -> str:
@@ -76,7 +87,7 @@ def narrate_setlist(
 
     # Build paragraph — try Gemini, fall back to template
     paragraph = ""
-    resolved_key = api_key or os.getenv("GOOGLE_API_KEY")
+    resolved_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if backend in {"gemini", "auto"} and resolved_key:
         try:
             paragraph = _gemini_paragraph(mood, genre, energy, setlist, resolved_key)

@@ -5,6 +5,9 @@ import re
 import sys
 from textwrap import wrap
 
+from dotenv import load_dotenv
+load_dotenv()
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 if __package__ in {None, ""} and PROJECT_ROOT not in sys.path:
@@ -12,6 +15,7 @@ if __package__ in {None, ""} and PROJECT_ROOT not in sys.path:
 
 from src.orchestrator import run_pipeline
 from src.recommender import load_songs
+from src.knowledge import load_knowledge_base
 
 
 def _prompt_top_k(default_k: int = 3) -> int:
@@ -68,6 +72,40 @@ def _print_setlist(setlist: list, explanations: list) -> None:
         print(f"  {rank:<3}  {title:<{title_width}}  {artist:<{artist_width}}  {why}")
 
 
+def _print_agentic_steps(steps: list, retry_triggered: bool) -> None:
+    if not steps:
+        return
+
+    step_label_width = 10
+    print("  Reasoning Steps:")
+    for step in steps:
+        name     = step.get("step_name", "?")
+        decision = step.get("decision", "")
+        data     = step.get("data", {})
+
+        extras = []
+        if "confidence" in data:
+            extras.append(f"conf={data['confidence']:.2f}")
+        if "retriever" in data:
+            extras.append(f"via={data['retriever']}")
+        if "candidates_found" in data:
+            extras.append(f"found={data['candidates_found']}")
+        if "top_score" in data:
+            extras.append(f"top={data['top_score']:.2f}")
+        if "kb_docs_injected" in data and data["kb_docs_injected"]:
+            extras.append(f"kb={data['kb_docs_injected']}")
+        if "cleared_avoid_genres" in data and data["cleared_avoid_genres"]:
+            extras.append(f"cleared={data['cleared_avoid_genres']}")
+
+        suffix = "  " + "  ".join(extras) if extras else ""
+        label  = f"[{name}]"
+        print(f"  {label:<{step_label_width}}  {decision}{suffix}")
+
+    if retry_triggered:
+        print("  * Retry was triggered — search was broadened for better results")
+    print()
+
+
 def _print_result(result: dict) -> None:
     agent1 = result.get("agent1", {})
     agent2 = result.get("agent2", {})
@@ -86,6 +124,11 @@ def _print_result(result: dict) -> None:
     print(f"  Mood: {mood:<12}  Energy: {_energy_label(energy):<8}  Genre: {genre}")
     print()
 
+    agentic_steps = result.get("agentic_steps") or agent3.get("agentic_steps", [])
+    retry_triggered = agent3.get("retry_triggered", False)
+    if agentic_steps:
+        _print_agentic_steps(agentic_steps, retry_triggered)
+
     _print_setlist(setlist, explanations)
 
     paragraph = agent4.get("paragraph", "")
@@ -101,8 +144,11 @@ def main() -> None:
     songs_csv = os.path.join(PROJECT_ROOT, "data", "songs.csv")
     songs = load_songs(songs_csv)
 
-    print("\n  DJ Recommender")
-    print("  " + "─" * 40)
+    kb_path = os.path.join(PROJECT_ROOT, "data", "knowledge_base.json")
+    kb_docs = load_knowledge_base(kb_path) if os.path.exists(kb_path) else None
+
+    print("\n  DJ Recommender  [agentic mode]")
+    print("  " + "-" * 40)
     k = _prompt_top_k(default_k=3)
     print()
     print("  Type your vibe. Enter 'quit' to exit.")
@@ -119,15 +165,18 @@ def main() -> None:
             return
 
         if not message:
-            print("  Say something — anything about your mood or what you're doing.")
+            print("  Say something -- anything about your mood or what you're doing.")
             continue
 
         result = run_pipeline(
             user_message=message,
             songs=songs,
             k=k,
-            agent1_backend="gemini",
+            agent1_backend="sentence_transformers",
             agent4_backend="gemini",
+            use_agentic=True,
+            kb_docs=kb_docs,
+            verbose=True,
         )
         _print_result(result)
 

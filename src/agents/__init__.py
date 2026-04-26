@@ -2,7 +2,7 @@
 
 from .agent1_mood import ALLOWED_MOODS, MoodAnalyst, analyze_mood
 from .agent2_profile import ProfileParser, parse_profile
-from .agent3_setlist import SetlistCurator, curate_setlist
+from .agent3 import SetlistCurator, curate_setlist
 from .agent4_narrator import DJNarrator, narrate_setlist
 
 __all__ = [

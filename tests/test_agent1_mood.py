@@ -7,7 +7,7 @@ class _FakeMessage:
 
 
 class _FakeGeminiSuccess:
-    def __init__(self, model: str, google_api_key: str, temperature: float):
+    def __init__(self, model: str, google_api_key: str, temperature: float, **kwargs):
         self.model = model
         self.google_api_key = google_api_key
         self.temperature = temperature
@@ -27,7 +27,7 @@ class _FakeGeminiSuccess:
 
 
 class _FakeGeminiBadJson:
-    def __init__(self, model: str, google_api_key: str, temperature: float):
+    def __init__(self, model: str, google_api_key: str, temperature: float, **kwargs):
         self.model = model
         self.google_api_key = google_api_key
         self.temperature = temperature

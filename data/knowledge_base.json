@@ -1,0 +1,110 @@
+[
+  {
+    "id": "kb-genre-pop",
+    "type": "genre",
+    "name": "pop",
+    "description": "Pop music features catchy hooks, polished production, and broad commercial appeal. High valence (0.75-0.90), strong lead vocals, moderate-to-high energy (0.65-0.90), tempo 110-130 BPM. Dominated by 2010s and 2020s releases."
+  },
+  {
+    "id": "kb-genre-lofi",
+    "type": "genre",
+    "name": "lofi",
+    "description": "Lo-fi hip-hop uses intentionally imperfect audio — vinyl crackle, tape hiss, warm textures. Very high instrumentalness (0.85-0.95), high acousticness, slow tempo (65-90 BPM), low energy (0.25-0.45). Ideal for studying, reading, background focus work."
+  },
+  {
+    "id": "kb-genre-rock",
+    "type": "genre",
+    "name": "rock",
+    "description": "Rock music is guitar-driven with strong rhythm sections. High energy (0.65-0.95), moderate valence, tempo 100-160 BPM. Ranges from moody atmospheric rock to aggressive high-tempo tracks. Strong vocal presence."
+  },
+  {
+    "id": "kb-genre-ambient",
+    "type": "genre",
+    "name": "ambient",
+    "description": "Ambient music creates atmospheric soundscapes with minimal melodic content. Very high instrumentalness (0.95+), very high acousticness, very low energy (0.20-0.35), slow tempo (55-70 BPM). Great for meditation, sleep, deep focus, or background texture."
+  },
+  {
+    "id": "kb-genre-synthwave",
+    "type": "genre",
+    "name": "synthwave",
+    "description": "Synthwave blends 1980s electronic aesthetics with modern production — pulsing synths, driving basslines, retro-futuristic feel. Moderate-high energy (0.65-0.90), moderate valence, tempo 100-140 BPM. Strong nostalgic and moody character."
+  },
+  {
+    "id": "kb-genre-indie-pop",
+    "type": "genre",
+    "name": "indie pop",
+    "description": "Indie pop combines alternative sensibility with pop accessibility. High valence (0.75-0.88), moderate-high energy (0.70-0.85), warm production, strong vocals. Tempo 115-130 BPM. Emotionally expressive, often euphoric or bittersweet."
+  },
+  {
+    "id": "kb-genre-jazz",
+    "type": "genre",
+    "name": "jazz",
+    "description": "Jazz features complex harmonies, improvisation, and organic instrumentation. High instrumentalness (0.70-0.80), high acousticness, low-moderate energy (0.30-0.45), moderate valence. Tempo 75-100 BPM. Creates warm, sophisticated, relaxed atmospheres."
+  },
+  {
+    "id": "kb-genre-edm",
+    "type": "genre",
+    "name": "edm",
+    "description": "Electronic dance music is built for dancefloors — driving four-on-the-floor beats, synthesizers, build-and-drop structure. Very high energy (0.85-0.98), high danceability (0.85-0.95), tempo 125-145 BPM. Ideal for intense workouts, parties, peak energy moments."
+  },
+  {
+    "id": "kb-genre-acoustic",
+    "type": "genre",
+    "name": "acoustic",
+    "description": "Acoustic music emphasizes organic, unamplified or lightly amplified instruments — guitar, piano, vocals. Very high acousticness (0.88-0.95), low-moderate energy (0.30-0.45), warm and intimate feel. Great for relaxed, nostalgic, or reflective moods."
+  },
+  {
+    "id": "kb-mood-happy",
+    "type": "mood",
+    "name": "happy",
+    "description": "Happy mood music has high valence (0.78-0.90), upbeat tempo (115-130 BPM), major keys, bright timbres, and strong vocal presence. Energy 0.70-0.90. Best matched by pop, indie pop, or synthwave tracks with euphoric mood tags. Ideal for celebrations, morning routines, social gatherings."
+  },
+  {
+    "id": "kb-mood-chill",
+    "type": "mood",
+    "name": "chill",
+    "description": "Chill mood is relaxed without being sleepy — moderate-low energy (0.25-0.45), mid-range valence (0.55-0.70), often instrumental or light vocals. Tempo 65-90 BPM. Best matched by lofi, ambient, or jazz with dreamy mood tags. Suitable for studying, casual listening, unwinding."
+  },
+  {
+    "id": "kb-mood-relaxed",
+    "type": "mood",
+    "name": "relaxed",
+    "description": "Relaxed mood is soothing and peaceful — very low energy (0.28-0.38), warm valence (0.65-0.75), high acousticness. Tempo 65-95 BPM. Best matched by acoustic, jazz, or ambient with warm mood tags. Ideal for winding down, yoga, reading."
+  },
+  {
+    "id": "kb-mood-moody",
+    "type": "mood",
+    "name": "moody",
+    "description": "Moody music is atmospheric, introspective, and emotionally complex — moderate energy (0.40-0.75), low-to-mid valence (0.42-0.52), cinematic textures. Best matched by synthwave, rock, or lofi with nostalgic or dreamy mood tags. Ideal for late nights, introspection, creative work."
+  },
+  {
+    "id": "kb-mood-sad",
+    "type": "mood",
+    "name": "sad",
+    "description": "Sad mood music is slow, introspective, and emotionally heavy — low energy (0.28-0.36), low valence (0.30-0.42), high acousticness or instrumentalness. Tempo 60-80 BPM. Best matched by lofi or acoustic with dreamy mood tags. For processing grief, heartbreak, or melancholy."
+  },
+  {
+    "id": "kb-mood-intense",
+    "type": "mood",
+    "name": "intense",
+    "description": "Intense mood music is high-powered and driving — very high energy (0.88-0.97), high danceability (0.85-0.92), fast tempo (130-160 BPM), aggressive mood tags. Best matched by edm, rock, or pop. For workouts, hype moments, competitive sports, peak performance."
+  },
+  {
+    "id": "kb-mood-focused",
+    "type": "mood",
+    "name": "focused",
+    "description": "Focused mood music minimizes distraction — low-to-moderate energy (0.25-0.45), high instrumentalness (0.90-0.99), minimal vocals, steady tempo (55-85 BPM). Best matched by lofi or ambient with instrumental or minimal mood tags. For deep work, coding, studying, concentration."
+  },
+  {
+    "id": "kb-mood-nostalgic",
+    "type": "mood",
+    "name": "nostalgic",
+    "description": "Nostalgic music evokes memories of the past — moderate energy (0.35-0.70), warm or bittersweet valence (0.50-0.65), often from 1980s-2000s. Best matched by synthwave, lofi, acoustic, or jazz with nostalgic mood tags. For reminiscing, throwback listening, sentimental moments."
+  },
+  {
+    "id": "kb-mood-balanced",
+    "type": "mood",
+    "name": "balanced",
+    "description": "Balanced mood has no strong emotional direction — mid-range energy (0.45-0.65), neutral valence (0.55-0.70). Suitable when the listener has no specific preference. Returns a diverse selection across genres and moods."
+  }
+]

@@ -3,6 +3,17 @@ import re
 from typing import Any, Dict, List, Optional, Tuple
 
 
+def _lc_text(response) -> str:
+    """Extract plain text from a LangChain response (content may be str or list of blocks)."""
+    content = getattr(response, "content", response)
+    if isinstance(content, list):
+        return " ".join(
+            block.get("text", "") for block in content
+            if isinstance(block, dict) and "text" in block
+        ).strip()
+    return str(content).strip()
+
+
 def _tokenize(text: str) -> List[str]:
     return re.findall(r"[a-z0-9']+", (text or "").lower())
 
@@ -56,6 +67,9 @@ def _token_overlap_confidence(scored: List[Tuple[float, Any]], query_tokens: Lis
     return round(min(1.0, top_score / max_possible), 4) if max_possible > 0 else 0.0
 
 
+_GEMINI_PREFILTER_SIZE = 20  # max songs sent to Gemini; pre-filtered by token overlap
+
+
 def _gemini_retrieve(
     user_message: str,
     songs: List[Dict[str, Any]],
@@ -63,6 +77,7 @@ def _gemini_retrieve(
     top_n: int,
     api_key: str,
     model: str,
+    kb_context: str = "",
 ) -> Optional[Tuple[List[Dict[str, Any]], float]]:
     """Returns (ordered_songs, confidence) or None on failure."""
     try:
@@ -70,6 +85,14 @@ def _gemini_retrieve(
         from langchain_core.messages import HumanMessage
 
         eligible = [s for s in songs if str(s.get("genre", "")).lower() not in avoid]
+
+        # Pre-filter: rank by token overlap and keep top GEMINI_PREFILTER_SIZE.
+        # This cuts the catalog sent to Gemini from ~40 to ~20 songs, halving prompt tokens.
+        query_tokens = _tokenize(user_message)
+        if query_tokens and len(eligible) > _GEMINI_PREFILTER_SIZE:
+            scored = sorted(eligible, key=lambda s: _score_candidate(query_tokens, s), reverse=True)
+            eligible = scored[:_GEMINI_PREFILTER_SIZE]
+
         catalog = [
             {
                 "id": song.get("id"),
@@ -82,9 +105,11 @@ def _gemini_retrieve(
         ]
         song_by_id = {song.get("id"): song for song in eligible}
 
+        context_block = f"{kb_context}\n\n" if kb_context else ""
         prompt = (
             "You are a music retrieval system. Given a user's vibe request and a song catalog, "
             "return the songs that best match the request semantically.\n\n"
+            f"{context_block}"
             f"User request: {user_message!r}\n\n"
             f"Song catalog:\n{json.dumps(catalog, indent=2)}\n\n"
             f"Return ONLY a JSON object with two keys:\n"
@@ -94,9 +119,9 @@ def _gemini_retrieve(
             "No explanation, no markdown, just the JSON object."
         )
 
-        llm = ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=0)
+        llm = ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=0, max_output_tokens=256)
         response = llm.invoke([HumanMessage(content=prompt)])
-        content = str(getattr(response, "content", response)).strip()
+        content = _lc_text(response)
 
         # Try parsing as object first, then fall back to bare array for robustness
         try:
@@ -136,6 +161,7 @@ def retrieve_candidates(
     user_message: Optional[str] = None,
     api_key: Optional[str] = None,
     model: str = "gemini-3-flash-preview",
+    kb_docs: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     profile = agent2_payload.get("profile", {}) if isinstance(agent2_payload.get("profile"), dict) else {}
     avoid = {str(genre).lower() for genre in profile.get("avoid_genres", []) if isinstance(genre, str)}
@@ -143,6 +169,19 @@ def retrieve_candidates(
 
     # Gemini semantic retrieval — understands vibe/intent beyond keyword matching.
     if user_message and api_key:
+        kb_context = ""
+        kb_docs_injected = 0
+        if kb_docs:
+            from src.knowledge import retrieve_kb_context, format_kb_context
+            profile = agent2_payload.get("profile", {}) if isinstance(agent2_payload.get("profile"), dict) else {}
+            relevant = retrieve_kb_context(
+                docs=kb_docs,
+                genre=profile.get("favorite_genre"),
+                mood=profile.get("favorite_mood"),
+            )
+            kb_context = format_kb_context(relevant)
+            kb_docs_injected = len(relevant)
+
         gemini_result = _gemini_retrieve(
             user_message=user_message,
             songs=songs,
@@ -150,6 +189,7 @@ def retrieve_candidates(
             top_n=max(1, top_n),
             api_key=api_key,
             model=model,
+            kb_context=kb_context,
         )
         if gemini_result:
             gemini_songs, confidence = gemini_result
@@ -161,6 +201,7 @@ def retrieve_candidates(
                 "filtered_avoid_genres": filtered_out,
                 "retrieval_fallback": False,
                 "retrieval_confidence": confidence,
+                "kb_docs_injected": kb_docs_injected,
             }
             return gemini_songs, debug
 
