@@ -14,9 +14,7 @@ def run_pipeline(
     user_message: str,
     songs: List[Dict[str, Any]],
     k: int = 5,
-    agent1_backend: str = "auto",
-    agent1_model: str = "gemini-3-flash-preview",
-    agent1_api_key: Optional[str] = None,
+    agent1_backend: str = "sentence_transformers",
     agent4_backend: str = "gemini",
     agent4_api_key: Optional[str] = None,
     optional_context: Optional[Dict[str, Any]] = None,
@@ -26,13 +24,11 @@ def run_pipeline(
     verbose: bool = False,
 ) -> Dict[str, Any]:
     if verbose:
-        _log(f"[Agent 1] Detecting mood (sentence-transformers)...")
+        _log(f"[Agent 1] Detecting mood ({agent1_backend})...")
     agent1_payload = analyze_mood(
         user_message=user_message,
         optional_context=optional_context,
         backend=agent1_backend,
-        model=agent1_model,
-        api_key=agent1_api_key,
     )
 
     trace_id = agent1_payload.get("trace_id")
@@ -40,14 +36,7 @@ def run_pipeline(
     if verbose:
         mood = agent1_payload.get("detected_mood", "?")
         notes = agent1_payload.get("notes", "")
-        if agent1_payload.get("llm_profile"):
-            backend_used = "gemini"
-        elif "sentence-transformer" in notes:
-            backend_used = "sentence-transformers"
-        elif "gemini fallback" in notes:
-            backend_used = "local (gemini failed)"
-        else:
-            backend_used = "local"
+        backend_used = "sentence-transformers" if "sentence-transformer" in notes else "local"
         _log(f"[Agent 1] Done  — mood={mood} (via {backend_used})")
         _log(f"[Agent 2] Building listener profile...")
 

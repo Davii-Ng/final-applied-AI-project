@@ -188,7 +188,7 @@ src/
   knowledge.py        — knowledge base loader and context formatter
   models.py           — Song and UserProfile dataclasses
   agents/
-    agent1_mood.py    — mood detection (sentence-transformers / Gemini / local)
+    agent1_mood.py    — mood detection (sentence-transformers hybrid / local keyword)
     agent2_profile.py — listener profile builder (rule-based)
     agent3.py         — agentic setlist curator (state machine + simple mode)
     agent4_narrator.py — DJ narration (Gemini paragraph / template fallback)
@@ -224,22 +224,20 @@ Find developer-facing docs in the `docs/` folder:
 ### Agent 1 — Mood Detection
 
 **Backends:**
-- `sentence_transformers` (default) — embeds user message and compares against mood reference sentences using `all-MiniLM-L6-v2`. ~13ms per call, no API key needed.
-- `gemini` — uses Gemini to parse mood and return structured JSON with audio feature hints
-- `local` — weighted keyword matching
-- `auto` — tries Gemini, falls back to local
+- `sentence_transformers` (default) — embeds user message against mood reference sentences using `all-MiniLM-L6-v2`, with a hybrid keyword/phrase boost to handle short colloquial inputs. ~13ms per call, no API key needed.
+- `local` — weighted keyword matching with phrase map
 
 **Output fields:**
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `detected_mood` | str | One of: happy, chill, relaxed, moody, sad, intense, focused, nostalgic, balanced |
-| `confidence` | float | Cosine similarity (ST) or model confidence (Gemini) |
+| `confidence` | float | Cosine similarity score (ST) or keyword confidence (local) |
 | `energy_hint` | float | Derived energy level [0.0–1.0] |
 | `mood_candidates` | list[str] | Top 3 mood candidates by score |
 | `notes` | str | Backend used and score |
 
-Fallback rule: if confidence < 0.38 (ST) or 0.55 (Gemini/local), mood is set to `balanced`.
+Fallback rule: if ST cosine similarity < 0.20, mood is set to `balanced`. Local backend uses 0.55 threshold.
 
 ### Agent 2 — Profile Builder
 
@@ -278,12 +276,13 @@ Two modes via `agentic` parameter (default `True`):
 | `retrieval_confidence` | 0–1 confidence score |
 | `kb_docs_injected` | Number of KB docs added to Gemini prompt |
 | `filtered_avoid_genres` | Songs excluded by avoid list |
+| `gemini_error` | Present when Gemini retrieval failed; explains why token-overlap was used |
 
 ### Agent 4 — DJ Narrator
 
 Writes a 2–3 sentence paragraph introducing the setlist.
 
-- `gemini` backend: calls Gemini with `temperature=0.4`, `max_output_tokens=150`
+- `gemini` backend: calls Gemini with `temperature=0.4` (no token cap — allows full natural sentences)
 - `local` backend: fills a template string
 
 ## Recommender Scoring

@@ -41,7 +41,7 @@ def _gemini_paragraph(
         f"Tracks: {tracks}"
     )
 
-    llm = ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=0.4, max_output_tokens=150)
+    llm = ChatGoogleGenerativeAI(model=model, google_api_key=api_key, temperature=0.4)
     response = llm.invoke([HumanMessage(content=prompt)])
     return _lc_text(response)
 

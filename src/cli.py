@@ -124,6 +124,11 @@ def _print_result(result: dict) -> None:
     print(f"  Mood: {mood:<12}  Energy: {_energy_label(energy):<8}  Genre: {genre}")
     print()
 
+    retrieval_debug = agent3.get("retrieval", {})
+    if retrieval_debug.get("gemini_error"):
+        print(f"  [warn] Gemini retrieval failed (using token-overlap): {retrieval_debug['gemini_error']}")
+        print()
+
     agentic_steps = result.get("agentic_steps") or agent3.get("agentic_steps", [])
     retry_triggered = agent3.get("retry_triggered", False)
     if agentic_steps:
@@ -172,7 +177,6 @@ def main() -> None:
             user_message=message,
             songs=songs,
             k=k,
-            agent1_backend="sentence_transformers",
             agent4_backend="gemini",
             use_agentic=True,
             kb_docs=kb_docs,

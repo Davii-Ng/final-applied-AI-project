@@ -1,5 +1,3 @@
-import json
-import os
 import re
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
@@ -7,7 +5,6 @@ from uuid import uuid4
 SCHEMA_VERSION = "1.0"
 FALLBACK_MOOD = "balanced"
 CONFIDENCE_FALLBACK_THRESHOLD = 0.55
-DEFAULT_GEMINI_MODEL = "gemini-3-flash-preview"
 
 ALLOWED_MOODS = {
     "happy",
@@ -69,6 +66,9 @@ MOOD_KEYWORDS: Dict[str, Dict[str, float]] = {
         "breathe": 0.8,
         "rest": 0.8,
         "calmdown": 0.9,
+        "tired": 0.8,
+        "exhausted": 0.9,
+        "drained": 0.9,
     },
     "moody": {
         "moody": 1.3,
@@ -82,6 +82,10 @@ MOOD_KEYWORDS: Dict[str, Dict[str, float]] = {
         "complex": 0.7,
         "introspective": 1.0,
         "overthinking": 0.9,
+        "mad": 1.0,
+        "angry": 1.1,
+        "frustrated": 1.0,
+        "annoyed": 0.9,
     },
     "sad": {
         "sad": 1.3,
@@ -188,6 +192,12 @@ PHRASE_MOOD_MAP: Dict[str, tuple] = {
     "take it easy": ("relaxed", 1.5),
     "chill out": ("chill", 1.8),
     "kick back": ("chill", 1.5),
+    "i'm mad": ("moody", 2.0),
+    "im mad": ("moody", 2.0),
+    "so mad": ("moody", 1.8),
+    "feeling tired": ("relaxed", 1.5),
+    "bit tired": ("relaxed", 1.5),
+    "so tired": ("relaxed", 1.5),
 }
 
 HIGH_ENERGY_HINTS = {"hype", "workout", "party", "dance", "running", "sprint", "intense", "pump"}
@@ -258,80 +268,6 @@ def _build_notes(
     return f"keyword-based mood match: {top_mood}"
 
 
-def _coerce_allowed_moods(raw_candidates: Any) -> List[str]:
-    if not isinstance(raw_candidates, list):
-        return []
-
-    normalized: List[str] = []
-    for candidate in raw_candidates:
-        mood = str(candidate).strip().lower()
-        if mood in ALLOWED_MOODS and mood not in normalized:
-            normalized.append(mood)
-    return normalized
-
-
-def _extract_json_content(raw_content: str) -> Optional[Dict[str, Any]]:
-    content = (raw_content or "").strip()
-    if not content:
-        return None
-
-    try:
-        parsed = json.loads(content)
-        return parsed if isinstance(parsed, dict) else None
-    except json.JSONDecodeError:
-        pass
-
-    block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, flags=re.DOTALL)
-    if block_match:
-        try:
-            parsed = json.loads(block_match.group(1))
-            return parsed if isinstance(parsed, dict) else None
-        except json.JSONDecodeError:
-            return None
-
-    object_match = re.search(r"\{.*\}", content, flags=re.DOTALL)
-    if object_match:
-        try:
-            parsed = json.loads(object_match.group(0))
-            return parsed if isinstance(parsed, dict) else None
-        except json.JSONDecodeError:
-            return None
-
-    return None
-
-
-def _gemini_prompt(user_message: str, optional_context: Optional[Dict[str, Any]]) -> str:
-    context = optional_context or {}
-    return (
-        "You are Agent 1, a mood and audio-profile parser for a music recommender. "
-        "Your job is to infer the user's full music preference profile from casual, everyday language. "
-        "Interpret colloquial and slang phrases semantically — for example: "
-        "'hitting the gym' or 'beast mode' → intense, high energy, high danceability, fast tempo; "
-        "'gotta lock in' or 'need to focus' → focused, low-medium energy, high instrumentalness; "
-        "'in my feels' or 'going through it' → moody, low energy, low valence; "
-        "'good vibes only' or 'feeling myself' → happy, medium-high energy, high valence; "
-        "'wind down' or 'take it easy' → relaxed, low energy, high acousticness. "
-        "Return strict JSON only (no markdown) with ALL of the following keys:\n"
-        "  detected_mood: one of [happy,chill,relaxed,moody,sad,intense,focused,nostalgic,balanced]\n"
-        "  confidence: float [0,1]\n"
-        "  energy_hint: float [0,1] (0=very calm, 1=maximum energy)\n"
-        "  mood_candidates: list of up to 3 moods from the allowed set\n"
-        "  notes: brief plain-English reasoning\n"
-        "  target_energy: float [0,1]\n"
-        "  target_valence: float [0,1] (0=dark/negative, 1=bright/positive)\n"
-        "  target_danceability: float [0,1]\n"
-        "  target_tempo_bpm: float (beats per minute, typical range 60-180)\n"
-        "  target_acousticness: float [0,1] (0=electronic/produced, 1=acoustic/raw)\n"
-        "  target_instrumentalness: float [0,1] (0=vocal-heavy, 1=fully instrumental)\n"
-        "  target_brightness: float [0,1] (0=dark/muffled, 1=bright/crisp)\n"
-        "  favorite_genre: one of [pop,rock,indie,indie pop,hip-hop,r&b,edm,lofi,jazz,classical,country,metal,ambient,synthpop] or null\n"
-        "  likes_acoustic: bool\n"
-        "  avoid_genres: list of genre strings the user wants excluded (empty list if none)\n"
-        f"User message: {user_message!r}. "
-        f"Optional context: {context!r}."
-    )
-
-
 def _local_analyze_mood(user_message: str, optional_context: Optional[Dict[str, Any]], trace_id: Optional[str]) -> Dict[str, Any]:
     text = (user_message or "").strip()
     context = optional_context or {}
@@ -369,97 +305,6 @@ def _local_analyze_mood(user_message: str, optional_context: Optional[Dict[str, 
     }
 
 
-def _gemini_analyze_mood(
-    user_message: str,
-    optional_context: Optional[Dict[str, Any]],
-    trace_id: Optional[str],
-    model: str,
-    api_key: Optional[str],
-    llm_class: Any,
-    message_class: Any,
-) -> Dict[str, Any]:
-    llm = llm_class(model=model, google_api_key=api_key, temperature=0, max_output_tokens=256)
-    response = llm.invoke([message_class(content=_gemini_prompt(user_message, optional_context))])
-    raw = getattr(response, "content", response)
-    if isinstance(raw, list):
-        response_content = " ".join(b.get("text", "") for b in raw if isinstance(b, dict) and "text" in b)
-    else:
-        response_content = str(raw)
-
-    payload = _extract_json_content(response_content)
-    if payload is None:
-        raise ValueError("Gemini response did not contain valid JSON object")
-
-    raw_mood = str(payload.get("detected_mood", FALLBACK_MOOD)).lower()
-    raw_confidence = payload.get("confidence", 0.0)
-    raw_energy_hint = payload.get("energy_hint")
-    raw_candidates = payload.get("mood_candidates", [])
-
-    detected_mood = raw_mood if raw_mood in ALLOWED_MOODS else FALLBACK_MOOD
-
-    try:
-        confidence = _clamp_01(float(raw_confidence))
-    except (TypeError, ValueError):
-        confidence = 0.0
-
-    if confidence < CONFIDENCE_FALLBACK_THRESHOLD:
-        detected_mood = FALLBACK_MOOD
-
-    try:
-        energy_hint = _clamp_01(float(raw_energy_hint)) if raw_energy_hint is not None else None
-    except (TypeError, ValueError):
-        energy_hint = None
-
-    candidates = _coerce_allowed_moods(raw_candidates)[:3]
-    if not candidates:
-        candidates = [detected_mood]
-
-    notes = str(payload.get("notes", "gemini mood parse")).strip() or "gemini mood parse"
-
-    def _safe_clamp(key: str, default: Optional[float]) -> Optional[float]:
-        val = payload.get(key)
-        if val is None:
-            return default
-        try:
-            return _clamp_01(float(val))
-        except (TypeError, ValueError):
-            return default
-
-    def _safe_float_field(key: str, default: Optional[float]) -> Optional[float]:
-        val = payload.get(key)
-        if val is None:
-            return default
-        try:
-            return float(val)
-        except (TypeError, ValueError):
-            return default
-
-    llm_genre = payload.get("favorite_genre")
-    llm_avoid = payload.get("avoid_genres", [])
-
-    return {
-        "schema_version": SCHEMA_VERSION,
-        "trace_id": trace_id or str(uuid4()),
-        "detected_mood": detected_mood,
-        "confidence": round(confidence, 4),
-        "energy_hint": energy_hint,
-        "mood_candidates": candidates,
-        "notes": notes,
-        # LLM-assigned audio feature targets — consumed by Agent 2 in llm mode
-        "target_energy": _safe_clamp("target_energy", None),
-        "target_valence": _safe_clamp("target_valence", None),
-        "target_danceability": _safe_clamp("target_danceability", None),
-        "target_tempo_bpm": _safe_float_field("target_tempo_bpm", None),
-        "target_acousticness": _safe_clamp("target_acousticness", None),
-        "target_instrumentalness": _safe_clamp("target_instrumentalness", None),
-        "target_brightness": _safe_clamp("target_brightness", None),
-        "favorite_genre": llm_genre if isinstance(llm_genre, str) and llm_genre else None,
-        "likes_acoustic": bool(payload.get("likes_acoustic", False)),
-        "avoid_genres": [g for g in llm_avoid if isinstance(g, str)] if isinstance(llm_avoid, list) else [],
-        "llm_profile": True,
-    }
-
-
 _ST_MODEL_NAME = "all-MiniLM-L6-v2"
 _st_model_cache = None
 
@@ -478,11 +323,13 @@ _ST_MOOD_REFERENCES: Dict[str, List[str]] = {
         "I need to unwind and decompress after a long day, something peaceful and soothing",
         "unwind calm peaceful soothing gentle quiet tranquil wind down rest spa ambient",
         "slow calm music to help me rest, de-stress and feel at ease, very gentle",
+        "I am tired and exhausted, I need something calming and low energy to wind down",
     ],
     "moody": [
         "I am feeling dark brooding atmospheric and introspective, late night deep thoughts",
         "moody dark atmospheric cloudy brooding melancholic night drive indie alternative",
         "complex emotional music, bittersweet, contemplative, rainy window, introspective",
+        "I am angry and frustrated, feeling mad and annoyed, intense dark emotions",
     ],
     "sad": [
         "I feel sad heartbroken lonely and want to cry, emotional grief and melancholy",
@@ -493,6 +340,7 @@ _ST_MOOD_REFERENCES: Dict[str, List[str]] = {
         "I need hype intense aggressive high energy music for a workout sprint or game",
         "intense hype pump workout gym beast mode aggressive sprint training power adrenaline",
         "fast loud powerful energetic music, pushing limits, going hard, maximum energy",
+        "time to hit the gym, I need motivation and power to crush this workout",
     ],
     "focused": [
         "I need to concentrate and focus on studying coding or deep work with no distractions",
@@ -510,7 +358,10 @@ _ST_MOOD_REFERENCES: Dict[str, List[str]] = {
     ],
 }
 
-_ST_CONFIDENCE_THRESHOLD = 0.38  # cosine similarity range differs from Gemini confidence
+# Minimum cosine similarity to accept best mood rather than falling back to balanced.
+# MiniLM-L6-v2 averaged-reference scores top out around 0.45 for strong matches;
+# 0.20 correctly rejects truly empty/ambiguous inputs while accepting short real phrases.
+_ST_CONFIDENCE_THRESHOLD = 0.20
 
 
 def _get_st_model():
@@ -551,6 +402,19 @@ def _st_analyze_mood(
             mood_emb = mood_emb / norm
         mood_scores.append(float(user_emb @ mood_emb))
         offset += count
+
+    # Hybrid boost: phrase/keyword signals handle short colloquial inputs that
+    # confuse pure cosine similarity (e.g. "A bit tired" → relaxed, "I'm mad" → moody).
+    # Keyword scores are raw counts; we normalize by a typical max (~3.0) and add
+    # a small fraction so they can tip close calls without dominating clear ST wins.
+    tokens = _tokenize(user_message)
+    keyword_scores = _score_moods(tokens, user_message)
+    max_kw = max(keyword_scores.values()) if keyword_scores else 0.0
+    if max_kw > 0:
+        for i, mood in enumerate(moods):
+            kw = keyword_scores.get(mood, 0.0)
+            # Scale keyword contribution: 0.08 at max typical score (~3.0), capped at 0.10
+            mood_scores[i] += min(kw / max_kw * 0.08, 0.10)
 
     best_idx = int(max(range(len(mood_scores)), key=lambda i: mood_scores[i]))
     best_mood = moods[best_idx]
@@ -596,56 +460,20 @@ def analyze_mood(
     optional_context: Optional[Dict[str, Any]] = None,
     trace_id: Optional[str] = None,
     backend: str = "local",
-    model: str = DEFAULT_GEMINI_MODEL,
-    api_key: Optional[str] = None,
-    llm_class: Any = None,
-    message_class: Any = None,
 ) -> Dict[str, Any]:
     selected_backend = (backend or "local").strip().lower()
-
-    if selected_backend == "local":
-        return _local_analyze_mood(user_message, optional_context, trace_id)
 
     if selected_backend == "sentence_transformers":
         return _st_analyze_mood(user_message, optional_context, trace_id)
 
-    if selected_backend not in {"gemini", "auto"}:
-        raise ValueError("backend must be one of: local, gemini, auto, sentence_transformers")
+    if selected_backend == "local":
+        return _local_analyze_mood(user_message, optional_context, trace_id)
 
-    resolved_key = api_key or os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-    should_try_gemini = selected_backend == "gemini" or bool(resolved_key)
-
-    if should_try_gemini:
-        try:
-            if llm_class is None or message_class is None:
-                from langchain_google_genai import ChatGoogleGenerativeAI
-                from langchain_core.messages import HumanMessage
-
-                llm_class = ChatGoogleGenerativeAI
-                message_class = HumanMessage
-
-            if not resolved_key:
-                raise ValueError("missing GOOGLE_API_KEY")
-
-            return _gemini_analyze_mood(
-                user_message=user_message,
-                optional_context=optional_context,
-                trace_id=trace_id,
-                model=model,
-                api_key=resolved_key,
-                llm_class=llm_class,
-                message_class=message_class,
-            )
-        except Exception as exc:
-            local_payload = _local_analyze_mood(user_message, optional_context, trace_id)
-            local_payload["notes"] = f"{local_payload['notes']} | gemini fallback: {exc}"
-            return local_payload
-
-    return _local_analyze_mood(user_message, optional_context, trace_id)
+    raise ValueError("backend must be one of: local, sentence_transformers")
 
 
 class MoodAnalyst:
-    """Agent 1 that converts free text into a normalized mood payload."""
+    """Agent 1 — converts free text into a normalized mood payload using sentence-transformers or local keyword scoring."""
 
     def analyze(
         self,
@@ -653,14 +481,10 @@ class MoodAnalyst:
         optional_context: Optional[Dict[str, Any]] = None,
         trace_id: Optional[str] = None,
         backend: str = "local",
-        model: str = DEFAULT_GEMINI_MODEL,
-        api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         return analyze_mood(
             user_message=user_message,
             optional_context=optional_context,
             trace_id=trace_id,
             backend=backend,
-            model=model,
-            api_key=api_key,
         )

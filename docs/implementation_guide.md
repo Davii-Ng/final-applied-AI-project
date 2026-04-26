@@ -31,7 +31,7 @@ src/
   knowledge.py        — KB loader and context formatter for RAG
   models.py           — Song and UserProfile dataclasses
   agents/
-    agent1_mood.py    — mood detection (sentence-transformers / Gemini / local)
+    agent1_mood.py    — mood detection (sentence-transformers hybrid / local keyword)
     agent2_profile.py — listener profile builder (rule-based)
     agent3.py         — agentic setlist curator (state machine + simple mode)
     agent4_narrator.py — DJ narration (Gemini paragraph / template fallback)
@@ -146,20 +146,21 @@ Each state logs a step with `step_name`, `decision`, and `data` dict. All steps 
 
 Function: `analyze_mood(user_message, optional_context=None, trace_id=None, backend="sentence_transformers")`
 
-Backends: `sentence_transformers` (default), `gemini`, `local`, `auto`
+Backends: `sentence_transformers` (default), `local`
 
 | Field | Type | Notes |
 |-------|------|-------|
 | schema_version | str | "1.0" |
 | trace_id | str | UUID |
 | detected_mood | str | one of 9 moods or "balanced" |
-| confidence | float | cosine sim (ST) or model conf (Gemini) |
-| energy_hint | float \| None | per-mood default or Gemini-assigned |
-| mood_candidates | list[str] | top 3 |
-| notes | str | e.g. `"sentence-transformer:all-MiniLM-L6-v2 score=0.675"` |
-| llm_profile | bool | True only when Gemini ran successfully |
+| confidence | float | cosine similarity (ST) or keyword confidence (local) |
+| energy_hint | float \| None | per-mood default energy level |
+| mood_candidates | list[str] | top 3 by score |
+| notes | str | e.g. `"sentence-transformer:all-MiniLM-L6-v2 score=0.513"` |
 
-Fallback: if confidence < 0.38 (ST) or 0.55 (Gemini/local), `detected_mood` = `"balanced"`.
+Fallback: if ST confidence < 0.20 or local confidence < 0.55, `detected_mood` = `"balanced"`.
+
+**ST hybrid logic:** cosine similarity scores are blended with a small keyword/phrase boost (≤ 0.10 per mood) so that short colloquial phrases like "hit the gym" or "a bit tired" still resolve correctly even when the embedding alone is ambiguous.
 
 ### 4.3 Agent 2 Output
 
@@ -201,6 +202,7 @@ Retrieval debug fields:
 | retrieval_confidence | 0–1 score |
 | kb_docs_injected | number of KB docs added to Gemini prompt |
 | filtered_avoid_genres | songs excluded by avoid list |
+| gemini_error | present only when Gemini retrieval failed; describes the failure reason |
 
 ### 4.5 Agent 4 Output
 
@@ -227,10 +229,11 @@ Function: `narrate_setlist(agent3_payload, persona=None, trace_id=None, backend=
 4. Parse `{"ids": [...], "confidence": 0.85}` response
 5. Return ordered songs + confidence
 
-**Token-overlap fallback** (no API key):
+**Token-overlap fallback** (no API key, or when Gemini call fails):
 - Score each song by token overlap with profile query text
 - Genre/mood/tag boosts applied
 - Confidence = top_score / max_possible (normalized proxy)
+- If Gemini was attempted but failed, `gemini_error` is included in the debug dict and printed as a `[warn]` line in the CLI
 
 ---
 
@@ -274,7 +277,7 @@ context_str = format_kb_context(relevant)  # injected into Gemini prompt
 
 ## 8. Orchestrator
 
-`run_pipeline(user_message, songs, k=5, agent1_backend="sentence_transformers", agent4_backend="gemini", use_agentic=True, kb_docs=None, verbose=False)`
+`run_pipeline(user_message, songs, k=5, agent1_backend="sentence_transformers", agent4_backend="gemini", agent4_api_key=None, use_agentic=True, kb_docs=None, verbose=False)`
 
 - `verbose=True` prints per-agent progress lines to stdout
 - API key resolved from `GOOGLE_API_KEY` or `GEMINI_API_KEY` env vars
@@ -330,8 +333,10 @@ flowchart TD
 | Scenario | Behavior |
 |----------|----------|
 | No API key | Agent 3 uses token-overlap; Agent 4 uses template paragraph; warning printed |
-| Gemini call fails | Agent 3 falls back to token-overlap; Agent 4 falls back to template |
-| Low ST confidence (< 0.38) | Agent 1 returns `"balanced"` mood |
+| Gemini retrieval fails | Agent 3 falls back to token-overlap; `gemini_error` key added to retrieval debug dict; `[warn]` line printed in CLI |
+| Gemini narration fails | Agent 4 falls back to template paragraph |
+| Low ST confidence (< 0.20) | Agent 1 returns `"balanced"` mood |
+| Low local confidence (< 0.55) | Agent 1 returns `"balanced"` mood |
 | Invalid agent2 profile | Agent 3 returns `error: "invalid_profile_payload"`, empty setlist |
 | Empty setlist | Agent 4 returns canned fallback paragraph |
 | LangChain content as list | All Gemini callers use `_lc_text(response)` helper to extract text |
@@ -343,8 +348,8 @@ flowchart TD
 ```python
 # Agent 1
 analyze_mood(user_message, optional_context=None, trace_id=None,
-             backend="sentence_transformers", model="gemini-3-flash-preview",
-             api_key=None) -> dict
+             backend="sentence_transformers") -> dict
+# backend: "sentence_transformers" | "local"
 
 # Agent 2
 parse_profile(user_message, agent1_payload, optional_context=None,
@@ -361,8 +366,8 @@ narrate_setlist(agent3_payload, persona=None, trace_id=None,
 
 # Orchestrator
 run_pipeline(user_message, songs, k=5, agent1_backend="sentence_transformers",
-             agent4_backend="gemini", use_agentic=True, kb_docs=None,
-             verbose=False) -> dict
+             agent4_backend="gemini", agent4_api_key=None,
+             use_agentic=True, kb_docs=None, verbose=False) -> dict
 
 # Recommender
 load_songs(csv_path) -> list[dict]

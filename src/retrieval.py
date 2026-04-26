@@ -78,8 +78,8 @@ def _gemini_retrieve(
     api_key: str,
     model: str,
     kb_context: str = "",
-) -> Optional[Tuple[List[Dict[str, Any]], float]]:
-    """Returns (ordered_songs, confidence) or None on failure."""
+) -> Tuple[Optional[Tuple[List[Dict[str, Any]], float]], Optional[str]]:
+    """Returns ((ordered_songs, confidence), None) on success, or (None, error_str) on failure."""
     try:
         from langchain_google_genai import ChatGoogleGenerativeAI
         from langchain_core.messages import HumanMessage
@@ -124,6 +124,7 @@ def _gemini_retrieve(
         content = _lc_text(response)
 
         # Try parsing as object first, then fall back to bare array for robustness
+        parsed = None
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError:
@@ -138,20 +139,22 @@ def _gemini_retrieve(
                 parsed = {"ids": json.loads(arr_match.group(0)), "confidence": 0.5} if arr_match else None
 
         if parsed is None:
-            return None
+            return None, f"could not parse Gemini response as JSON: {content[:120]!r}"
 
         ids = parsed if isinstance(parsed, list) else parsed.get("ids", [])
         confidence = float(parsed.get("confidence", 0.5)) if isinstance(parsed, dict) else 0.5
         confidence = max(0.0, min(1.0, confidence))
 
         if not isinstance(ids, list):
-            return None
+            return None, f"Gemini returned non-list ids field: {ids!r}"
 
         ordered = [song_by_id[sid] for sid in ids if sid in song_by_id]
-        return (ordered[:top_n], round(confidence, 4)) if ordered else None
+        if not ordered:
+            return None, "Gemini returned ids but none matched catalog"
+        return (ordered[:top_n], round(confidence, 4)), None
 
-    except Exception:
-        return None
+    except Exception as exc:
+        return None, f"{type(exc).__name__}: {exc}"
 
 
 def retrieve_candidates(
@@ -166,6 +169,7 @@ def retrieve_candidates(
     profile = agent2_payload.get("profile", {}) if isinstance(agent2_payload.get("profile"), dict) else {}
     avoid = {str(genre).lower() for genre in profile.get("avoid_genres", []) if isinstance(genre, str)}
     filtered_out = sum(1 for s in songs if str(s.get("genre", "")).lower() in avoid)
+    gemini_fallback_reason: Optional[str] = None
 
     # Gemini semantic retrieval — understands vibe/intent beyond keyword matching.
     if user_message and api_key:
@@ -182,7 +186,7 @@ def retrieve_candidates(
             kb_context = format_kb_context(relevant)
             kb_docs_injected = len(relevant)
 
-        gemini_result = _gemini_retrieve(
+        gemini_result, gemini_error = _gemini_retrieve(
             user_message=user_message,
             songs=songs,
             avoid=avoid,
@@ -204,6 +208,8 @@ def retrieve_candidates(
                 "kb_docs_injected": kb_docs_injected,
             }
             return gemini_songs, debug
+        # Gemini call failed — fall through to token-overlap with error surfaced in debug.
+        gemini_fallback_reason = gemini_error or "unknown"
 
     # Token overlap fallback when Gemini is unavailable.
     query_text = _build_query_text(agent2_payload)
@@ -218,7 +224,7 @@ def retrieve_candidates(
 
     if not scored:
         fallback = [song for song in songs if str(song.get("genre", "")).lower() not in avoid]
-        debug = {
+        debug: Dict[str, Any] = {
             "retriever": "token-overlap",
             "query_tokens": query_tokens,
             "candidates_before": len(songs),
@@ -227,6 +233,8 @@ def retrieve_candidates(
             "retrieval_fallback": True,
             "retrieval_confidence": 0.0,
         }
+        if gemini_fallback_reason:
+            debug["gemini_error"] = gemini_fallback_reason
         return fallback[: max(1, top_n)], debug
 
     scored.sort(key=lambda item: item[0], reverse=True)
@@ -240,4 +248,6 @@ def retrieve_candidates(
         "retrieval_fallback": False,
         "retrieval_confidence": _token_overlap_confidence(scored, query_tokens),
     }
+    if gemini_fallback_reason:
+        debug["gemini_error"] = gemini_fallback_reason
     return selected, debug
