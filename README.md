@@ -29,6 +29,8 @@ Every step is logged, scored, and explained — no black-box recommendations.
 
 ## Live Demo
 
+Check out my demo video here: https://www.loom.com/share/0644948359484ff8be8128e52aa15aec
+
 ```
   DJ Recommender  [agentic mode]
   ----------------------------------------
