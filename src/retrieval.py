@@ -70,6 +70,61 @@ def _token_overlap_confidence(scored: List[Tuple[float, Any]], query_tokens: Lis
 _GEMINI_PREFILTER_SIZE = 20  # max songs sent to Gemini; pre-filtered by token overlap
 
 
+def _parse_gemini_ids_and_confidence(content: str) -> Optional[Tuple[List[Any], float]]:
+    """Best-effort parser for Gemini retrieval output.
+
+    Accepts strict JSON, JSON wrapped in extra text, bare arrays, and truncated
+    objects that still contain a usable ids prefix (for example: '{"ids": [9, 1').
+    """
+    parsed = None
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        parsed = None
+
+    if parsed is None:
+        match = re.search(r"\{.*\}", content, re.DOTALL)
+        if match:
+            try:
+                parsed = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                parsed = None
+
+    if parsed is None:
+        arr_match = re.search(r"\[[\d,\s]+\]", content)
+        if arr_match:
+            try:
+                parsed = {"ids": json.loads(arr_match.group(0)), "confidence": 0.5}
+            except json.JSONDecodeError:
+                parsed = None
+
+    if parsed is None:
+        # Recover from truncated outputs that still started an ids list.
+        # Example: '{"ids": [9, 1' -> ids=[9, 1], confidence defaults to 0.5.
+        id_prefix = re.search(r'"ids"\s*:\s*\[([^\]]*)', content)
+        if id_prefix:
+            raw_items = [item.strip() for item in id_prefix.group(1).split(",")]
+            recovered_ids: List[int] = []
+            for item in raw_items:
+                if not item:
+                    continue
+                int_match = re.match(r"^-?\d+", item)
+                if int_match:
+                    recovered_ids.append(int(int_match.group(0)))
+            if recovered_ids:
+                parsed = {"ids": recovered_ids, "confidence": 0.5}
+
+    if parsed is None:
+        return None
+
+    ids = parsed if isinstance(parsed, list) else parsed.get("ids", [])
+    confidence = float(parsed.get("confidence", 0.5)) if isinstance(parsed, dict) else 0.5
+    confidence = max(0.0, min(1.0, confidence))
+    if not isinstance(ids, list):
+        return None
+    return ids, confidence
+
+
 def _gemini_retrieve(
     user_message: str,
     songs: List[Dict[str, Any]],
@@ -123,30 +178,11 @@ def _gemini_retrieve(
         response = llm.invoke([HumanMessage(content=prompt)])
         content = _lc_text(response)
 
-        # Try parsing as object first, then fall back to bare array for robustness
-        parsed = None
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", content, re.DOTALL)
-            if match:
-                try:
-                    parsed = json.loads(match.group(0))
-                except json.JSONDecodeError:
-                    parsed = None
-            if parsed is None:
-                arr_match = re.search(r"\[[\d,\s]+\]", content)
-                parsed = {"ids": json.loads(arr_match.group(0)), "confidence": 0.5} if arr_match else None
-
+        parsed = _parse_gemini_ids_and_confidence(content)
         if parsed is None:
             return None, f"could not parse Gemini response as JSON: {content[:120]!r}"
 
-        ids = parsed if isinstance(parsed, list) else parsed.get("ids", [])
-        confidence = float(parsed.get("confidence", 0.5)) if isinstance(parsed, dict) else 0.5
-        confidence = max(0.0, min(1.0, confidence))
-
-        if not isinstance(ids, list):
-            return None, f"Gemini returned non-list ids field: {ids!r}"
+        ids, confidence = parsed
 
         ordered = [song_by_id[sid] for sid in ids if sid in song_by_id]
         if not ordered:
@@ -155,6 +191,21 @@ def _gemini_retrieve(
 
     except Exception as exc:
         return None, f"{type(exc).__name__}: {exc}"
+
+
+def _token_overlap_ranked(
+    songs: List[Dict[str, Any]],
+    avoid: set,
+    query_tokens: List[str],
+) -> List[Tuple[float, Dict[str, Any]]]:
+    scored: List[Tuple[float, Dict[str, Any]]] = []
+    for song in songs:
+        if str(song.get("genre", "")).lower() in avoid:
+            continue
+        score = _score_candidate(query_tokens, song)
+        scored.append((score, song))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored
 
 
 def retrieve_candidates(
@@ -197,17 +248,39 @@ def retrieve_candidates(
         )
         if gemini_result:
             gemini_songs, confidence = gemini_result
+            backfill_added = 0
+
+            # If Gemini returns fewer than requested ids, top up with token-overlap
+            # to satisfy top_n while preserving Gemini ordering first.
+            requested_n = max(1, top_n)
+            if len(gemini_songs) < requested_n:
+                query_tokens = _tokenize(_build_query_text(agent2_payload))
+                scored = _token_overlap_ranked(songs=songs, avoid=avoid, query_tokens=query_tokens)
+                existing_ids = {song.get("id") for song in gemini_songs}
+                for _, song in scored:
+                    song_id = song.get("id")
+                    if song_id in existing_ids:
+                        continue
+                    gemini_songs.append(song)
+                    existing_ids.add(song_id)
+                    backfill_added += 1
+                    if len(gemini_songs) >= requested_n:
+                        break
+
             debug = {
                 "retriever": "gemini-semantic",
                 "query": user_message,
                 "candidates_before": len(songs),
-                "candidates_after": len(gemini_songs),
+                "candidates_after": len(gemini_songs[:requested_n]),
                 "filtered_avoid_genres": filtered_out,
                 "retrieval_fallback": False,
                 "retrieval_confidence": confidence,
                 "kb_docs_injected": kb_docs_injected,
             }
-            return gemini_songs, debug
+            if backfill_added > 0:
+                debug["backfill_retriever"] = "token-overlap"
+                debug["backfill_added"] = backfill_added
+            return gemini_songs[:requested_n], debug
         # Gemini call failed — fall through to token-overlap with error surfaced in debug.
         gemini_fallback_reason = gemini_error or "unknown"
 
@@ -215,12 +288,7 @@ def retrieve_candidates(
     query_text = _build_query_text(agent2_payload)
     query_tokens = _tokenize(query_text)
 
-    scored: List[Tuple[float, Dict[str, Any]]] = []
-    for song in songs:
-        if str(song.get("genre", "")).lower() in avoid:
-            continue
-        score = _score_candidate(query_tokens, song)
-        scored.append((score, song))
+    scored = _token_overlap_ranked(songs=songs, avoid=avoid, query_tokens=query_tokens)
 
     if not scored:
         fallback = [song for song in songs if str(song.get("genre", "")).lower() not in avoid]
@@ -237,7 +305,6 @@ def retrieve_candidates(
             debug["gemini_error"] = gemini_fallback_reason
         return fallback[: max(1, top_n)], debug
 
-    scored.sort(key=lambda item: item[0], reverse=True)
     selected = [song for _, song in scored[: max(1, top_n)]]
     debug = {
         "retriever": "token-overlap",

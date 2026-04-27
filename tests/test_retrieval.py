@@ -203,6 +203,52 @@ def test_gemini_bare_array_response_still_works():
     assert any(s["id"] in {2, 3} for s in results)
 
 
+def test_gemini_truncated_ids_object_prefix_still_works():
+    """Truncated JSON like '{"ids": [9, 1' should recover usable ids."""
+    gemini_response = '{"ids": [9, 1'
+
+    with patch("langchain_google_genai.ChatGoogleGenerativeAI", return_value=_mock_llm_response(gemini_response)), \
+         patch("langchain_core.messages.HumanMessage", side_effect=lambda content: content):
+        results, debug = retrieve_candidates(
+            _agent2_payload(), _songs(), top_n=3,
+            user_message="hype songs", api_key="fake-key",
+        )
+
+    assert debug["retriever"] == "gemini-semantic"
+    assert len(results) == 3
+    assert results[0]["id"] == 1
+
+
+def test_gemini_non_list_ids_field_falls_back():
+    gemini_response = json.dumps({"ids": "1,2", "confidence": 0.9})
+
+    with patch("langchain_google_genai.ChatGoogleGenerativeAI", return_value=_mock_llm_response(gemini_response)), \
+         patch("langchain_core.messages.HumanMessage", side_effect=lambda content: content):
+        _, debug = retrieve_candidates(
+            _agent2_payload(), _songs(), top_n=2,
+            user_message="something", api_key="fake-key",
+        )
+
+    assert debug["retriever"] == "token-overlap"
+
+
+def test_gemini_short_ids_are_backfilled_to_top_n():
+    gemini_response = json.dumps({"ids": [1], "confidence": 0.91})
+
+    with patch("langchain_google_genai.ChatGoogleGenerativeAI", return_value=_mock_llm_response(gemini_response)), \
+         patch("langchain_core.messages.HumanMessage", side_effect=lambda content: content):
+        results, debug = retrieve_candidates(
+            _agent2_payload(), _songs(), top_n=3,
+            user_message="focus vibes", api_key="fake-key",
+        )
+
+    assert debug["retriever"] == "gemini-semantic"
+    assert debug.get("backfill_retriever") == "token-overlap"
+    assert debug.get("backfill_added", 0) >= 1
+    assert len(results) == 3
+    assert results[0]["id"] == 1
+
+
 # ---------------------------------------------------------------------------
 # _token_overlap_confidence unit tests
 # ---------------------------------------------------------------------------
